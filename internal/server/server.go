@@ -23,7 +23,12 @@ type Server struct {
 	readyOnce  sync.Once
 }
 
-const DefaultAddr = "127.0.0.1:13335"
+const (
+	DefaultAddr = "127.0.0.1:13335"
+	ReadyPath   = "/api/v1/ready"
+	ReadyHeader = "X-BKNetwork-Ready"
+	ReadyMarker = "bknetwork-v7"
+)
 
 func NewServer(addr string) *Server {
 	if addr == "" {
@@ -31,6 +36,8 @@ func NewServer(addr string) *Server {
 	}
 	mux := http.NewServeMux()
 	hub := events.NewHub()
+	webDir, webReady := resolveWebDir()
+	mux.HandleFunc(ReadyPath, readyHandler(webReady))
 	mux.HandleFunc("/api/v1/switch", handlers.SwitchStackHandler(hub))
 	mux.HandleFunc("/api/v1/dns", handlers.DnsHandler(hub))
 	mux.HandleFunc("/api/v1/warp", handlers.WarpHandler(hub))
@@ -44,7 +51,7 @@ func NewServer(addr string) *Server {
 	mux.HandleFunc("/ws", handlers.WSHandler(hub))
 
 	// static files: prefer the executable directory, then the current working directory.
-	if webDir, ok := resolveWebDir(); ok {
+	if webReady {
 		mux.Handle("/", noStoreFileServer(webDir))
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +66,28 @@ func NewServer(addr string) *Server {
 			Addr:    addr,
 			Handler: mux,
 		},
+	}
+}
+
+func readyHandler(webReady bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !webReady {
+			http.Error(w, "web UI is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.Header().Set(ReadyHeader, ReadyMarker)
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			_, _ = fmt.Fprint(w, `{"ok":true,"app":"BKNetwork","protocol":"v7"}`)
+		}
 	}
 }
 
@@ -79,21 +108,25 @@ func (s *Server) Ready() <-chan struct{} {
 
 func resolveWebDir() (string, bool) {
 	if exePath, err := os.Executable(); err == nil {
-		if dir := filepath.Join(filepath.Dir(exePath), "web"); isDir(dir) {
+		if dir := filepath.Join(filepath.Dir(exePath), "web"); isWebDir(dir) {
 			return dir, true
 		}
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		if dir := filepath.Join(cwd, "web"); isDir(dir) {
+		if dir := filepath.Join(cwd, "web"); isWebDir(dir) {
 			return dir, true
 		}
 	}
 	return "", false
 }
 
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+func isWebDir(path string) bool {
+	dirInfo, err := os.Stat(path)
+	if err != nil || !dirInfo.IsDir() {
+		return false
+	}
+	indexInfo, err := os.Stat(filepath.Join(path, "index.html"))
+	return err == nil && !indexInfo.IsDir()
 }
 
 func (s *Server) Start(ctx context.Context) error {

@@ -6,29 +6,77 @@
   <title>BKNetwork</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="blue-theme.css?v=1" />
 </head>
 <body>
-  <div class="mode-switch" aria-label="高级模式切换">
-    <span class="label">高级模式</span>
-    <label class="toggle" title="切换高级模式">
-      <input id="advancedModeToggle" type="checkbox" />
-      <span class="toggle-track" aria-hidden="true"></span>
-    </label>
-  </div>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-brand" viewBox="0 0 24 24">
+      <path d="M4.8 9.5a10.5 10.5 0 0 1 14.4 0M7.7 12.5a6.3 6.3 0 0 1 8.6 0M10.5 15.4a2.3 2.3 0 0 1 3 0"/>
+      <path d="M17 13.5v5l2.5 1.6 2.5-1.6v-5L19.5 12 17 13.5Z"/>
+      <path d="m18.5 16 1 1 1.7-2"/>
+    </symbol>
+    <symbol id="icon-login" viewBox="0 0 24 24">
+      <path d="M13 5V3H5v18h8v-2M10 12h11m-4-4 4 4-4 4"/>
+    </symbol>
+    <symbol id="icon-campus" viewBox="0 0 24 24">
+      <path d="m3 9 9-5 9 5M5 10v8m4-8v8m6-8v8m4-8v8M3 20h18"/>
+    </symbol>
+    <symbol id="icon-traffic" viewBox="0 0 24 24">
+      <path d="M5 20V10h3v10M11 20V4h3v16M17 20v-7h3v7"/>
+    </symbol>
+    <symbol id="icon-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+    </symbol>
+    <symbol id="icon-warp" viewBox="0 0 24 24">
+      <path d="m21 4-8.2 16-2.6-6.2L4 11.2 21 4Z"/><path d="m10.2 13.8 4.2-4.1"/>
+    </symbol>
+    <symbol id="icon-route" viewBox="0 0 24 24">
+      <circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h3c4 0 4-6 7-6M10 12c4 0 4 6 7 6"/>
+    </symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24">
+      <path d="M12 3v12m-4-4 4 4 4-4M5 20h14"/>
+    </symbol>
+    <symbol id="icon-community" viewBox="0 0 24 24">
+      <circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 20c0-4 2.5-6 6-6s6 2 6 6M15 15c3 0 5 1.7 5 5"/>
+    </symbol>
+    <symbol id="icon-server" viewBox="0 0 24 24">
+      <rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M15 7h2M15 17h2"/>
+    </symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24">
+      <path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>
+    </symbol>
+    <symbol id="icon-network" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9"/>
+    </symbol>
+    <symbol id="icon-bolt" viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z"/></symbol>
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  </svg>
 
-  <a class="github-fab" href="https://github.com/tangmuguo/BKNetwork" target="_blank" rel="noreferrer" aria-label="访问 GitHub 主页">
-    <picture>
-      <source srcset="github-dark.svg" media="(prefers-color-scheme: dark)" />
-      <img src="github-light.svg" alt="GitHub" />
-    </picture>
-  </a>
+  <header class="app-header">
+    <div class="app-wordmark">BKNetwork</div>
+    <div class="app-header-actions">
+      <div class="mode-switch" aria-label="高级模式切换">
+        <span class="label">高级模式</span>
+        <label class="toggle" title="切换高级模式">
+          <input id="advancedModeToggle" type="checkbox" />
+          <span class="toggle-track" aria-hidden="true"></span>
+        </label>
+      </div>
 
-  <button class="settings-fab" id="settingsOpenBtn" type="button" aria-label="打开设置面板" title="设置">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-  </button>
+      <button class="settings-fab header-action" id="settingsOpenBtn" type="button" aria-label="打开设置面板" title="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>设置</span>
+      </button>
+
+      <a class="github-fab header-action" href="https://github.com/tangmuguo/BKNetwork" target="_blank" rel="noreferrer" aria-label="访问 GitHub 主页">
+        <img src="github-light.svg" alt="" />
+        <span>GitHub</span>
+      </a>
+    </div>
+  </header>
 
   <div class="operation-toast visible" id="operationToast" role="status" aria-live="polite" aria-atomic="true" data-tone="info">
     <div class="operation-toast__title" id="operationToastTitle">正在初始化...</div>
@@ -40,7 +88,7 @@
       <header>
         <div>
           <h3 id="settingsTitle">设置</h3>
-          <div class="settings-desc"><!-- 描述 --></div>
+          <div class="settings-desc">管理应用与 WARP 的启动行为</div>
         </div>
         <button class="close-btn" id="settingsCloseBtn" type="button" aria-label="关闭设置">×</button>
       </header>
@@ -83,44 +131,50 @@
   <main class="shell">
     <section class="hero">
       <div class="panel hero-main">
-        <div>
-          <div class="eyebrow">BKNetwork</div>
-          <h1>北科校园网助手</h1>
-          <p class="lead">v1.0.0</p>
-          <div class="badge ipv6-check-badge" id="ipv6CheckBadge">
-            <span id="ipv6CheckDot" class="dot warn"></span>
-            <span id="ipv6CheckText" class="ipv6-check-text">正在检测 IPv6 地址...</span>
-            <button id="ipv6RefreshBtn" class="ipv6-refresh" type="button" aria-label="刷新 IPv6 检测" title="刷新 IPv6 检测">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4c-4.42 0-8 3.58-8 8s3.58 8 8 8c3.31 0 6.14-2.01 7.36-4.88a1 1 0 1 0-1.84-.8A6 6 0 1 1 12 6c1.38 0 2.63.47 3.63 1.24L14 9h6V3l-2.35 3.35Z"/>
-              </svg>
-            </button>
+        <div class="hero-brand-row">
+          <div class="brand-icon" aria-hidden="true">
+            <svg class="ui-icon"><use href="#icon-brand"/></svg>
+          </div>
+          <div class="hero-copy">
+            <h1>北科校园网助手</h1>
+            <p class="lead">v1.0.1</p>
+            <div class="badge ipv6-check-badge" id="ipv6CheckBadge">
+              <span id="ipv6CheckDot" class="dot warn"></span>
+              <span id="ipv6CheckText" class="ipv6-check-text">正在检测 IPv6 地址...</span>
+              <button id="ipv6RefreshBtn" class="ipv6-refresh" type="button" aria-label="刷新 IPv6 检测" title="刷新 IPv6 检测">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4c-4.42 0-8 3.58-8 8s3.58 8 8 8c3.31 0 6.14-2.01 7.36-4.88a1 1 0 1 0-1.84-.8A6 6 0 1 1 12 6c1.38 0 2.63.47 3.63 1.24L14 9h6V3l-2.35 3.35Z"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
         <div class="status-row">
-          <div class="badge"><span id="backendDot" class="dot warn"></span><span id="backendBadge">后端状态</span></div>
-          <div class="badge"><span id="adminDot" class="dot warn"></span><span id="adminBadge">管理员权限检查中</span></div>
-          <div class="badge"><span id="networkDot" class="dot"></span><span id="networkBadge">网络状态</span></div>
-          <div class="badge"><span id="freeDot" class="dot"></span><span id="freeBadge">免流状态</span></div>
+          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-server"/></svg><span id="backendDot" class="dot warn"></span><span id="backendBadge">后端状态</span></div>
+          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-shield"/></svg><span id="adminDot" class="dot warn"></span><span id="adminBadge">管理员权限检查中</span></div>
+          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-network"/></svg><span id="networkDot" class="dot"></span><span id="networkBadge">网络状态</span></div>
+          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-bolt"/></svg><span id="freeDot" class="dot"></span><span id="freeBadge">免流状态</span></div>
         </div>
       </div>
 
       <aside class="panel hero-side">
         <a class="mini mini-link" href="http://202.204.48.66" target="_blank" rel="noreferrer">
-          <div class="label">点击跳转</div>
-          <div class="value">登录校园网</div>
+          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-login"/></svg></span>
+          <span class="mini-copy"><span class="label">快捷入口</span><span class="value">登录校园网</span></span>
+          <svg class="ui-icon mini-arrow"><use href="#icon-arrow"/></svg>
         </a>
         <a class="mini mini-link" href="https://zifuwu.ustb.edu.cn/" target="_blank" rel="noreferrer">
-          <div class="label">点击跳转</div>
-          <div class="value">校园网管理系统</div>
+          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-campus"/></svg></span>
+          <span class="mini-copy"><span class="label">快捷入口</span><span class="value">校园网管理系统</span></span>
+          <svg class="ui-icon mini-arrow"><use href="#icon-arrow"/></svg>
         </a>
         <div class="mini">
-          <div class="label">本月流量统计</div>
-          <div class="value" id="trafficUsage">未加载</div>
+          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-traffic"/></svg></span>
+          <span class="mini-copy"><span class="label">本月流量统计</span><span class="value" id="trafficUsage">未加载</span></span>
         </div>
         <div class="mini">
-          <div class="label">状态更新时间</div>
-          <div class="value" id="lastUpdated">未加载</div>
+          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-clock"/></svg></span>
+          <span class="mini-copy"><span class="label">状态更新时间</span><span class="value" id="lastUpdated">未加载</span></span>
         </div>
       </aside>
     </section>
@@ -129,13 +183,13 @@
       <div class="section-head">
         <div>
           <h2>校园网免流</h2>
-          <br/>
         </div>
       </div>
       <label class="easy-mode-card" for="easyModeToggle">
-        <div>
-          <div class="easy-mode-title">Warp 免流模式</div>
-          <div class="easy-mode-desc">开启后切换为仅 v6，并启用 Warp；关闭则恢复双栈并关闭 Warp</div>
+        <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-warp"/></svg></span>
+        <div class="feature-copy">
+          <div class="easy-mode-title">WARP 免流模式</div>
+          <div class="easy-mode-desc">开启后切换为仅 v6，并启用 WARP；关闭则恢复双栈并关闭 WARP</div>
           <div class="easy-mode-state" id="easyModeState">当前关闭</div>
         </div>
         <span class="toggle">
@@ -144,6 +198,7 @@
         </span>
       </label>
       <div class="easy-mode-secondary-card clash-split-card">
+        <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-route"/></svg></span>
         <div class="clash-split-copy">
           <div class="easy-mode-title">ChatGPT → Clash Verge 分流</div>
           <div class="easy-mode-desc">仅将 ChatGPT/OpenAI 必要域名交给 Clash；其余流量直连并继续由 WARP 承载。建议 Clash 使用系统代理、全局模式并选择日区节点，关闭 TUN。</div>
@@ -158,18 +213,21 @@
           <span class="toggle-track" aria-hidden="true"></span>
         </label>
       </div>
-      <br/><br/>
-      <div class="section-head">
-        <div>
-          <h2>Warp 免流模式需安装 Warp</h2>
-          <div class="section-kicker"><a href="https://downloads.cloudflareclient.com/v1/download/windows/ga" target="_blank">在此下载 Warp</a>，可在设置页面关闭Warp的开机自启，不影响功能</div>
-        </div>
-      </div>
-      <div class="section-head">
-        <div>
-          <h2>更多免流模式</h2>
-          <div class="section-kicker"><a href="https://t.me/ernst_loosen_bot" target="_blank">telegram</a> <a href="https://discord.com/invite/vNfM9ezTdE" target="_blank">discord</a>
-          </div>
+      <div class="resource-grid">
+        <a class="resource-card" href="https://downloads.cloudflareclient.com/v1/download/windows/ga" target="_blank" rel="noreferrer">
+          <span class="resource-icon"><svg class="ui-icon"><use href="#icon-download"/></svg></span>
+          <span class="resource-copy">
+            <strong>WARP 免流模式需安装 WARP</strong>
+            <span>在此下载 WARP，可在设置页面关闭开机自启，不影响功能</span>
+          </span>
+          <svg class="ui-icon resource-arrow"><use href="#icon-arrow"/></svg>
+        </a>
+        <div class="resource-card">
+          <span class="resource-icon"><svg class="ui-icon"><use href="#icon-community"/></svg></span>
+          <span class="resource-copy">
+            <strong>更多免流模式</strong>
+            <span class="resource-links"><a href="https://t.me/ernst_loosen_bot" target="_blank" rel="noreferrer">telegram</a><a href="https://discord.com/invite/vNfM9ezTdE" target="_blank" rel="noreferrer">discord</a></span>
+          </span>
         </div>
       </div>
     </section>
@@ -264,7 +322,7 @@
         </div>
       </section>
 
-      <section class="section" style="margin-top:16px;">
+      <section class="panel section advanced-section">
         <div class="section-head">
           <div>
             <h2>网卡</h2>
@@ -274,7 +332,7 @@
         <div class="adapter-list" id="adapterList"></div>
       </section>
 
-      <section class="section" style="margin-top:12px;">
+      <section class="panel section advanced-section">
         <div class="section-head">
           <div>
             <h2>日志</h2>
@@ -286,6 +344,6 @@
     </div>
   </main>
 
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

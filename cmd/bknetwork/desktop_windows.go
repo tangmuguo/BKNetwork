@@ -6,13 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -641,6 +639,10 @@ func openBrowserURL(url string) error {
 }
 
 func waitForV7UI(timeout time.Duration) error {
+	return waitForV7UIAt("http://"+server.DefaultAddr, timeout)
+}
+
+func waitForV7UIAt(baseURL string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{
 		Timeout: 750 * time.Millisecond,
@@ -652,18 +654,8 @@ func waitForV7UI(timeout time.Duration) error {
 
 	var lastErr error
 	for time.Now().Before(deadline) {
-		response, err := client.Get("http://" + server.DefaultAddr + "/?v=7")
-		if err == nil {
-			body, readErr := io.ReadAll(io.LimitReader(response.Body, 2<<20))
-			_ = response.Body.Close()
-			if readErr == nil && response.StatusCode == http.StatusOK && strings.Contains(string(body), "v1.0.0") {
-				return nil
-			}
-			if readErr != nil {
-				lastErr = readErr
-			} else {
-				lastErr = fmt.Errorf("localhost returned status %d without the v7 marker", response.StatusCode)
-			}
+		if err := probeV7UI(client, baseURL); err == nil {
+			return nil
 		} else {
 			lastErr = err
 		}
@@ -673,4 +665,20 @@ func waitForV7UI(timeout time.Duration) error {
 		lastErr = errors.New("localhost did not respond")
 	}
 	return lastErr
+}
+
+func probeV7UI(client *http.Client, baseURL string) error {
+	response, err := client.Get(baseURL + server.ReadyPath)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("localhost readiness probe returned status %d", response.StatusCode)
+	}
+	if response.Header.Get(server.ReadyHeader) != server.ReadyMarker {
+		return fmt.Errorf("localhost returned status %d without the BKNetwork v7 readiness marker", response.StatusCode)
+	}
+	return nil
 }

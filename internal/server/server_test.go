@@ -14,7 +14,7 @@ import (
 
 func TestStaticFilesDisableBrowserCache(t *testing.T) {
 	webDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("v1.0.0"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("new-ui-version"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
@@ -26,8 +26,39 @@ func TestStaticFilesDisableBrowserCache(t *testing.T) {
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
 		t.Fatalf("Cache-Control = %q", got)
 	}
-	if !strings.Contains(recorder.Body.String(), "v1.0.0") {
+	if !strings.Contains(recorder.Body.String(), "new-ui-version") {
 		t.Fatalf("unexpected static response: %q", recorder.Body.String())
+	}
+}
+
+func TestReadyProbeHasStableBackendMarker(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, ReadyPath, nil)
+
+	readyHandler(true).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("ready response status = %d; want 200", recorder.Code)
+	}
+	if got := recorder.Header().Get(ReadyHeader); got != ReadyMarker {
+		t.Fatalf("%s = %q; want %q", ReadyHeader, got, ReadyMarker)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+}
+
+func TestReadyProbeRejectsMissingWebUI(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, ReadyPath, nil)
+
+	readyHandler(false).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ready response status = %d; want 503", recorder.Code)
+	}
+	if got := recorder.Header().Get(ReadyHeader); got != "" {
+		t.Fatalf("%s = %q; want no ready marker", ReadyHeader, got)
 	}
 }
 
