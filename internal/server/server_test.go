@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bknetwork/internal/appinfo"
 )
 
 func TestStaticFilesDisableBrowserCache(t *testing.T) {
@@ -45,6 +47,9 @@ func TestReadyProbeHasStableBackendMarker(t *testing.T) {
 	}
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
 		t.Fatalf("Cache-Control = %q", got)
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, `"version":"`+appinfo.Version+`"`) {
+		t.Fatalf("ready response does not report version %s: %q", appinfo.Version, body)
 	}
 }
 

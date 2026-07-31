@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"bknetwork/internal/appinfo"
 	appsettings "bknetwork/internal/settings"
 )
 
@@ -37,6 +38,7 @@ func TestNormalizeClashProxyAddress(t *testing.T) {
 func TestBuildChatGPTProxyPAC(t *testing.T) {
 	pac := buildChatGPTProxyPAC("127.0.0.1:7897")
 	for _, expected := range []string{
+		appinfo.DisplayName,
 		`return "PROXY 127.0.0.1:7897"`,
 		`"chatgpt.com"`,
 		`"openai.com"`,
@@ -63,7 +65,7 @@ func TestChatGPTProxyPACHandler(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/chatgpt-proxy.pac?v=7", nil)
+	request := httptest.NewRequest(http.MethodGet, chatGPTProxyPACURL, nil)
 	ChatGPTProxyPACHandler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("PAC handler status = %d; want 200", recorder.Code)

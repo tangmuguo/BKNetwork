@@ -1,14 +1,24 @@
 param(
+	[string]$Version = "1.0.1",
     [string]$OutputDir = "",
-    [string]$ZipName = "BKNetwork-warp-fix-v7.zip"
+    [string]$ZipName = ""
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+$Version = $Version.Trim().TrimStart('v')
+if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+    throw "Invalid release version: $Version"
+}
+$releaseTag = 'v' + $Version
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot 'releases\bknetwork-warp-fix-v7'
+    $OutputDir = Join-Path $repoRoot ('releases\bknetwork-' + $releaseTag)
+}
+if ([string]::IsNullOrWhiteSpace($ZipName)) {
+    $ZipName = 'BKNetwork-' + $releaseTag + '-windows-x64.zip'
 }
 
 $webSource = Join-Path $repoRoot 'web'

@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	"bknetwork/internal/appinfo"
 	"bknetwork/internal/handlers"
 	"bknetwork/internal/server"
 	appsettings "bknetwork/internal/settings"
@@ -181,12 +182,12 @@ func runDesktopApp() error {
 	select {
 	case <-srv.Ready():
 		// This process owns 127.0.0.1:13335. It is now safe to open the UI.
-		log.Printf("v7 local UI is listening at http://%s/?v=7", server.DefaultAddr)
+		log.Printf("%s local UI is listening at http://%s/?v=%s", appinfo.DisplayName, server.DefaultAddr, appinfo.Version)
 	case startErr := <-serverErr:
-		message := "BKNetwork v7 无法启动：127.0.0.1:13335 已被占用。\n\n请先从系统托盘退出旧版 BKNetwork，再重新运行 v7 文件夹中的 bknetwork.exe。"
+		message := appinfo.DisplayName + " 无法启动：127.0.0.1:13335 已被占用。\n\n请先从系统托盘退出旧版 BKNetwork，再重新运行当前文件夹中的 bknetwork.exe。"
 		return fmt.Errorf("%s: %w", message, startErr)
 	case <-time.After(10 * time.Second):
-		message := "BKNetwork v7 后台启动超时，请退出所有旧版 BKNetwork 后重试。"
+		message := appinfo.DisplayName + " 后台启动超时，请退出所有旧版 BKNetwork 后重试。"
 		return errors.New(message)
 	}
 	go func() {
@@ -209,12 +210,12 @@ func runDesktopApp() error {
 
 	tray := &trayController{
 		iconPath:   trayIcon,
-		browserURL: "http://" + server.DefaultAddr + "/?v=7",
+		browserURL: "http://" + server.DefaultAddr + "/?v=" + appinfo.Version,
 		onExit:     shutdownServer,
 	}
 	if !cfg.SilentStart && !hasElevatedChildArg() {
 		tray.onOpen = func() {
-			if err := waitForV7UI(10 * time.Second); err != nil {
+			if err := waitForUI(10 * time.Second); err != nil {
 				log.Printf("auto open browser skipped: %v", err)
 				return
 			}
@@ -258,13 +259,13 @@ func isServiceProcess() (bool, error) {
 }
 
 func openRelaunchedDesktopUI() error {
-	if err := waitForV7UI(20 * time.Second); err != nil {
-		return fmt.Errorf("管理员进程未能启动 v7 控制页面: %w；请查看 exe 同目录或 %%APPDATA%%\\BKNetwork 下的 bknetwork-v7.log", err)
+	if err := waitForUI(20 * time.Second); err != nil {
+		return fmt.Errorf("管理员进程未能启动 %s 控制页面: %w；请查看 exe 同目录或 %%APPDATA%%\\%s 下的 %s", appinfo.DisplayName, err, appinfo.Name, appinfo.LogFilename)
 	}
-	if err := openBrowserURL("http://" + server.DefaultAddr + "/?v=7"); err != nil {
-		return fmt.Errorf("v7 后台已启动，但打开默认浏览器失败: %w；请手动访问 http://%s/?v=7", err, server.DefaultAddr)
+	if err := openBrowserURL("http://" + server.DefaultAddr + "/?v=" + appinfo.Version); err != nil {
+		return fmt.Errorf("%s 后台已启动，但打开默认浏览器失败: %w；请手动访问 http://%s/?v=%s", appinfo.DisplayName, err, server.DefaultAddr, appinfo.Version)
 	}
-	log.Println("v7 browser launch requested from the non-elevated parent")
+	log.Printf("%s browser launch requested from the non-elevated parent", appinfo.DisplayName)
 	return nil
 }
 
@@ -293,8 +294,8 @@ func reportDesktopFailure(err error) {
 	}
 	log.Printf("desktop startup failed: %v", err)
 	showDesktopError(
-		"BKNetwork v7 启动失败",
-		"BKNetwork v7 未能完成启动。\n\n错误："+err.Error()+"\n\n请确认 exe 与 web 文件夹位于同一目录。",
+		appinfo.DisplayName+" 启动失败",
+		appinfo.DisplayName+" 未能完成启动。\n\n错误："+err.Error()+"\n\n请确认 exe 与 web 文件夹位于同一目录。",
 	)
 }
 
@@ -461,7 +462,7 @@ func (t *trayController) destroyWindow() {
 
 func (t *trayController) addTrayIcon() error {
 	nid := notifyIconData{CbSize: uint32(unsafe.Sizeof(notifyIconData{})), HWND: t.hwnd, UID: 1, Flags: nifMessage | nifIcon | nifTip, CallbackMessage: trayMessageID, HIcon: t.hicon}
-	t.setTip(&nid, "BKNetwork v7")
+	t.setTip(&nid, appinfo.DisplayName)
 	res, _, callErr := procShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid)))
 	if res == 0 {
 		return callErr
@@ -638,11 +639,11 @@ func openBrowserURL(url string) error {
 	return nil
 }
 
-func waitForV7UI(timeout time.Duration) error {
-	return waitForV7UIAt("http://"+server.DefaultAddr, timeout)
+func waitForUI(timeout time.Duration) error {
+	return waitForUIAt("http://"+server.DefaultAddr, timeout)
 }
 
-func waitForV7UIAt(baseURL string, timeout time.Duration) error {
+func waitForUIAt(baseURL string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{
 		Timeout: 750 * time.Millisecond,
@@ -654,7 +655,7 @@ func waitForV7UIAt(baseURL string, timeout time.Duration) error {
 
 	var lastErr error
 	for time.Now().Before(deadline) {
-		if err := probeV7UI(client, baseURL); err == nil {
+		if err := probeUI(client, baseURL); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -667,7 +668,7 @@ func waitForV7UIAt(baseURL string, timeout time.Duration) error {
 	return lastErr
 }
 
-func probeV7UI(client *http.Client, baseURL string) error {
+func probeUI(client *http.Client, baseURL string) error {
 	response, err := client.Get(baseURL + server.ReadyPath)
 	if err != nil {
 		return err
@@ -678,7 +679,7 @@ func probeV7UI(client *http.Client, baseURL string) error {
 		return fmt.Errorf("localhost readiness probe returned status %d", response.StatusCode)
 	}
 	if response.Header.Get(server.ReadyHeader) != server.ReadyMarker {
-		return fmt.Errorf("localhost returned status %d without the BKNetwork v7 readiness marker", response.StatusCode)
+		return fmt.Errorf("localhost returned status %d without the BKNetwork readiness marker", response.StatusCode)
 	}
 	return nil
 }

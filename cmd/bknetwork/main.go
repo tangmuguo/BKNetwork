@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"bknetwork/internal/appinfo"
 	"bknetwork/internal/handlers"
 	"bknetwork/internal/server"
 	appsettings "bknetwork/internal/settings"
@@ -21,7 +22,7 @@ var logger service.Logger
 func main() {
 	closeStartupLog := initializeStartupLog()
 	defer closeStartupLog()
-	log.Printf("BKNetwork v7 process started (pid=%d, args=%q)", os.Getpid(), os.Args[1:])
+	log.Printf("%s process started (pid=%d, args=%q)", appinfo.DisplayName, os.Getpid(), os.Args[1:])
 
 	runningAsService, err := isServiceProcess()
 	if err != nil {
@@ -39,14 +40,14 @@ func main() {
 		relaunched, err := ensureElevatedAtStartup()
 		if err != nil {
 			if errors.Is(err, errElevationCanceled) {
-				reportDesktopFailure(errors.New("管理员权限请求已取消；BKNetwork v7 未启动"))
+				reportDesktopFailure(fmt.Errorf("管理员权限请求已取消；%s 未启动", appinfo.DisplayName))
 				return
 			}
 			reportDesktopFailure(fmt.Errorf("请求管理员权限失败: %w", err))
 			return
 		}
 		if relaunched {
-			log.Println("elevated child launched; waiting for the v7 local UI")
+			log.Println("elevated child launched; waiting for the local UI")
 			if !cfg.SilentStart {
 				if err := openRelaunchedDesktopUI(); err != nil {
 					reportDesktopFailure(err)
@@ -61,8 +62,8 @@ func main() {
 	}
 
 	svcConfig := &service.Config{
-		Name:        "BKNetwork",
-		DisplayName: "BKNetwork Service",
+		Name:        appinfo.Name,
+		DisplayName: appinfo.Name + " Service",
 		Description: "Background network helper serving a local web UI on localhost:13335",
 	}
 
@@ -117,10 +118,10 @@ func main() {
 func initializeStartupLog() func() {
 	logPaths := make([]string, 0, 2)
 	if configDir, err := os.UserConfigDir(); err == nil {
-		logPaths = append(logPaths, filepath.Join(configDir, "BKNetwork", "bknetwork-v7.log"))
+		logPaths = append(logPaths, filepath.Join(configDir, appinfo.Name, appinfo.LogFilename))
 	}
 	if executablePath, err := os.Executable(); err == nil {
-		logPaths = append(logPaths, filepath.Join(filepath.Dir(executablePath), "bknetwork-v7.log"))
+		logPaths = append(logPaths, filepath.Join(filepath.Dir(executablePath), appinfo.LogFilename))
 	}
 
 	for _, logPath := range logPaths {

@@ -9,12 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"bknetwork/internal/appinfo"
 	"bknetwork/internal/events"
 	appsettings "bknetwork/internal/settings"
 )
 
 const (
-	chatGPTProxyPACURL       = "http://127.0.0.1:13335/api/v1/chatgpt-proxy.pac?v=7"
+	chatGPTProxyPACURL       = "http://127.0.0.1:13335/api/v1/chatgpt-proxy.pac?v=" + appinfo.Version
 	defaultClashProxyAddress = "127.0.0.1:7897"
 )
 
@@ -161,7 +162,7 @@ func buildChatGPTProxyPAC(proxyAddress string) string {
 		return "function FindProxyForURL(url, host) { return \"DIRECT\"; }\n"
 	}
 	domains, _ := json.Marshal(chatGPTProxyDomains)
-	return fmt.Sprintf(`// BKNetwork v7 - ChatGPT via Clash Verge, everything else direct/WARP.
+	return fmt.Sprintf(`// %s - ChatGPT via Clash Verge, everything else direct/WARP.
 var BKNETWORK_CHATGPT_DOMAINS = %s;
 function FindProxyForURL(url, host) {
   host = String(host || "").toLowerCase();
@@ -176,7 +177,7 @@ function FindProxyForURL(url, host) {
   }
   return "DIRECT";
 }
-`, domains, proxyAddress)
+`, appinfo.DisplayName, domains, proxyAddress)
 }
 
 func checkLocalProxy(address string, timeout time.Duration) error {

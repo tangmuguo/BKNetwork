@@ -1,8 +1,6 @@
 BKNetwork
 =========
 
-> 独立 Android IPv6-only 隧道客户端见 [`android/ipv6-only-client`](android/ipv6-only-client/README.md)。它使用标准 WireGuard 服务器，强制 IPv6 外层且不回退到 IPv4。
-
 BKNetwork 是一个轻量级本地服务，带有内置 Web 管理界面，用于简化用户针对北科校园网络的部分管理，并提供免流功能。
 
 **仅支持 Windows x64** 系统。仅在 Win11 测试，不保证支持 Win10 使用。
@@ -43,7 +41,7 @@ BKNetwork 是一个轻量级本地服务，带有内置 Web 管理界面，用�
 
    * 实时流量监控，推荐 [Sniffnet](https://sniffnet.net/)
 
-5. 欢迎提 issue。或者先问问你的 ai 朋友
+5. 欢迎提 issue。或者先问问你的 AI
 
 ## 开发者指南
 

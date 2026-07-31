@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"bknetwork/internal/appinfo"
 	"bknetwork/internal/events"
 	appsettings "bknetwork/internal/settings"
 
@@ -761,8 +762,8 @@ func StatusHandler(hub *events.Hub) http.HandlerFunc {
 		network, _ := collectNetworkSnapshot()
 		writeJSON(w, map[string]interface{}{
 			"service": map[string]interface{}{
-				"name":    "BKNetwork",
-				"version": "1.0.0",
+				"name":    appinfo.Name,
+				"version": appinfo.Version,
 			},
 			"admin":      admin,
 			"adminError": adminErrMsg,

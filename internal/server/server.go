@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 
+	"bknetwork/internal/appinfo"
 	"bknetwork/internal/events"
 	"bknetwork/internal/handlers"
 )
@@ -27,7 +28,7 @@ const (
 	DefaultAddr = "127.0.0.1:13335"
 	ReadyPath   = "/api/v1/ready"
 	ReadyHeader = "X-BKNetwork-Ready"
-	ReadyMarker = "bknetwork-v7"
+	ReadyMarker = "bknetwork-ready"
 )
 
 func NewServer(addr string) *Server {
@@ -86,7 +87,7 @@ func readyHandler(webReady bool) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodGet {
-			_, _ = fmt.Fprint(w, `{"ok":true,"app":"BKNetwork","protocol":"v7"}`)
+			_, _ = fmt.Fprintf(w, `{"ok":true,"app":"%s","version":"%s"}`, appinfo.Name, appinfo.Version)
 		}
 	}
 }
@@ -95,7 +96,7 @@ func noStoreFileServer(webDir string) http.Handler {
 	staticFiles := http.FileServer(http.Dir(webDir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The UI is served from a fixed localhost URL across upgrades. Prevent
-		// an old index/app.js pair from surviving when users replace v6 with v7.
+		// stale index/app.js files from surviving an application upgrade.
 		w.Header().Set("Cache-Control", "no-store, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
 		staticFiles.ServeHTTP(w, r)
