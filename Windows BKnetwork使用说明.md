@@ -16,11 +16,30 @@
 
 * 安装[Npcap](https://npcap.com/#download)中的Npcap 1.88 installer
 
+### 家庭网络 WireGuard（不使用 Cloudflare 的替代方案）
+
+如果你的 Ubuntu 家庭服务器有可从校园网访问的公网 IPv6，且 UDP `51820` 已在路由器/防火墙和 Ubuntu 上放行，可以在此模式中替代 Cloudflare WARP。仅开放 UDP 端口还不够：Ubuntu 还必须启用 IPv4/IPv6 转发，为 `10.66.66.0/24` 配置 IPv4 NAT，并为隧道 IPv6 配置 NAT66 或可路由的回程前缀。
+
+1. 在 Windows 安装[官方 WireGuard for Windows](https://www.wireguard.com/install/)，并先在官方客户端中导入家庭服务器的客户端 `.conf`；BKNetwork 只会枚举配置名称、启停该隧道服务，不会读取或保存配置中的私钥。
+2. 配置的 `[Peer]` 建议至少包含：
+
+   ```ini
+   Endpoint = [你的家庭公网 IPv6]:51820
+   AllowedIPs = 0.0.0.0/0, ::/0
+   PersistentKeepalive = 25
+   ```
+
+   IPv6 Endpoint 必须用方括号。物理网卡只保留 IPv6 是为了保证外层链路不走校园 IPv4；`0.0.0.0/0` 则把 Windows 的内层 IPv4 流量封装进 WireGuard，二者并不冲突。还应在 `[Interface]` 中配置隧道 DNS，例如 `DNS = 1.1.1.1, 2606:4700:4700::1111`。
+3. 以管理员身份运行 BKNetwork，在“家庭网络 WireGuard”卡片选择刚导入的隧道并开启。程序会先断开 WARP、把目标物理网卡切为仅 IPv6、启动 WireGuard，随后依次验证握手、双栈默认路由、隧道 IPv4 公网连接和 Windows DNS。
+4. 如果任一步失败，BKNetwork 会停止该隧道并自动恢复物理网卡的 IPv4/IPv6 双栈；错误信息会区分客户端路由、DNS 与 Ubuntu 转发/NAT 问题。
+
+> 使用家庭网络时不要同时开启 WARP 免流模式；BKNetwork 会在切换时自动关闭另一方。Clash Verge 的系统代理模式可以继续使用，`127.0.0.1` 回环连接不受影响；不要同时开启 Clash TUN。
+
 ## 启动说明
 
 ### Clash Verge 设置
 
-* 关闭 TUN 模式，避免 Mihomo 虚拟网卡抢占 WARP 的 IPv6 外层
+* 关闭 TUN 模式，避免 Mihomo 虚拟网卡抢占 WARP 或家庭 WireGuard 的默认路由
 * 打开系统代理
 * 选择全局模式，并手动选择日区节点（只是方便使用ChatGPT，实则任意节点均可）
 * 在 Clash Verge 设置中确认 HTTP/mixed 端口；常见默认地址是 `127.0.0.1:7897`（如果不是此地址，需要在浏览器控制页面给出你电脑的真实地址）
@@ -31,11 +50,11 @@
 
 ### BKNetwork 设置
 
-* 先开启 Warp 免流模式并等待连接成功
+* 先开启 WARP 免流模式或家庭 WireGuard，并等待 BKNetwork 确认联网成功
 * 在 `ChatGPT → Clash Verge 分流` 中填写 Clash 的 `127.0.0.1:端口`
-* 开启分流，看到“ChatGPT → 端口；其他 → WARP”后，完全退出并重开 `ChatGPT classic` 和 `ChatGPT`
+* 开启分流，看到“ChatGPT → 端口；其他 → 当前网络（WARP/家庭 WireGuard）”后，完全退出并重开 `ChatGPT classic` 和 `ChatGPT`
 
-PS：此模式使用系统 PAC，只把 OpenAI/ChatGPT 必要的 HTTP、HTTPS、WebSocket 域名交给 Clash。其他系统代理流量为 DIRECT，仍由 WARP 承载。Clash 直连模式不会产生日区出口，因此不适合此用法。Voice 的原生 UDP 不受系统 PAC 控制，可能通过 WARP 或回退到 TCP 443。
+PS：此模式使用系统 PAC，只把 OpenAI/ChatGPT 必要的 HTTP、HTTPS、WebSocket 域名交给 Clash。其他系统代理流量为 DIRECT，仍由当前的 WARP 或家庭 WireGuard 承载。Clash 直连模式不会产生日区出口，因此不适合此用法。Voice 的原生 UDP 不受系统 PAC 控制，可能通过当前隧道或回退到 TCP 443。
 
 ## 关闭说明
 

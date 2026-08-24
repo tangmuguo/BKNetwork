@@ -139,6 +139,14 @@ body.advanced-mode .shell { flex: 1 0 auto; }
 }
 .easy-mode-secondary-card { margin-top: 12px; }
 
+.home-network-card { align-items: flex-start; }
+.home-network-copy { min-width: 0; flex: 1; }
+.home-tunnel-row { display: flex; align-items: center; gap: 10px; width: min(100%, 1040px); margin-top: 12px; }
+.home-tunnel-row label { color: var(--fg-secondary); font-size: 12px; white-space: nowrap; }
+.home-tunnel-select { width: auto; min-width: 0; flex: 1; min-height: 34px; padding: 7px 34px 7px 10px; font-size: 13px; cursor: pointer; }
+.home-tunnel-select:disabled { cursor: not-allowed; opacity: 0.55; }
+.home-refresh-btn { flex: 0 0 auto; min-height: 34px; padding: 7px 12px; }
+
 .clash-split-card { align-items: flex-start; }
 .clash-split-copy { min-width: 0; flex: 1; }
 .clash-address-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
@@ -389,6 +397,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .github-fab img { width: 20px; height: 20px; }
   .settings-fab svg { width: 22px; height: 22px; }
   .easy-mode-card, .easy-mode-secondary-card { flex-direction: column; align-items: flex-start; }
+  .home-tunnel-row { width: 100%; flex-direction: column; align-items: stretch; }
+  .home-tunnel-select { width: 100%; }
+  .home-refresh-btn { align-self: flex-start; }
   .clash-address-row { width: 100%; flex-direction: column; align-items: flex-start; }
   .clash-proxy-input { width: 100%; }
   .dns-grid { grid-template-columns: 1fr; }

@@ -15,6 +15,12 @@ BKNetwork 是一个轻量级本地服务，带有内置 Web 管理界面，用�
 
 见Windows BKnetwork使用说明
 
+## 家庭网络 WireGuard（可选）
+
+如果家里的 Ubuntu 服务器提供可访问的公网 IPv6，且 UDP `51820` 已放行，可以用家庭 WireGuard 替代 Cloudflare WARP。先在 **官方 WireGuard for Windows** 导入客户端配置，在 BKNetwork 页面选择该隧道即可；程序不会读取或保存 WireGuard 私钥。客户端应使用 `Endpoint = [家庭公网IPv6]:51820`、`AllowedIPs = 0.0.0.0/0, ::/0`、隧道内 `DNS` 和 `PersistentKeepalive = 25`。Ubuntu 还需要正确配置 IPv4/IPv6 转发，以及 IPv4 NAT 和 NAT66/回程路由；只有开放 UDP 端口并不足够。
+
+BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关闭 WARP 并切换物理网卡为仅 IPv6。程序不会再把握手等同于联网；它会校验 WireGuard 双栈默认路由，并从隧道 IPv4 地址实际测试公网与 Windows DNS，失败时停止隧道并恢复双栈。
+
 ## Q&A
 
 1. 免流模式真的能实现免流吗？
@@ -92,7 +98,7 @@ GOOS=windows GOARCH=amd64 go build -o bknetwork.exe ./cmd/bknetwork
 
 - 静态 Web UI：根路径（`/`）会提供 `web` 目录下的文件。
 - REST 状态接口：`/api/v1/status` — 返回最近一次网络快照与服务状态。
-- 控制接口：`/api/v1/switch`（切换 IPv4/IPv6）、`/api/v1/warp`（控制 warp-cli）、`/api/v1/chatgpt-proxy`（配置 ChatGPT → Clash PAC 分流）。
+- 控制接口：`/api/v1/switch`（切换 IPv4/IPv6）、`/api/v1/warp`（控制 warp-cli）、`/api/v1/home-network`（控制官方客户端已导入的家庭 WireGuard 隧道）、`/api/v1/chatgpt-proxy`（配置 ChatGPT → Clash PAC 分流）。
 - PAC：`/api/v1/chatgpt-proxy.pac` — 仅供本机 Windows 系统代理读取。
 - 实时事件：WebSocket 路径为 `/ws`，会发送 `hello`、`network.status`、`heartbeat` 等事件。
 

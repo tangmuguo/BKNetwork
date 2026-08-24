@@ -18,6 +18,10 @@ const warpSettingsModeEl = document.getElementById('warpSettingsMode');
 const warpSettingsTunnelProtocolEl = document.getElementById('warpSettingsTunnelProtocol');
 const easyModeToggleEl = document.getElementById('easyModeToggle');
 const easyModeStateEl = document.getElementById('easyModeState');
+const homeNetworkToggleEl = document.getElementById('homeNetworkToggle');
+const homeNetworkStateEl = document.getElementById('homeNetworkState');
+const homeTunnelSelectEl = document.getElementById('homeTunnelSelect');
+const homeNetworkRefreshBtnEl = document.getElementById('homeNetworkRefreshBtn');
 const chatGPTClashToggleEl = document.getElementById('chatGPTClashToggle');
 const chatGPTClashStateEl = document.getElementById('chatGPTClashState');
 const clashProxyAddressEl = document.getElementById('clashProxyAddress');
@@ -48,8 +52,9 @@ const stackModeButtons = {
   ipv6: document.getElementById('btnIpv6'),
   both: document.getElementById('btnBoth'),
 };
-const buttons = [stackModeButtons.ipv4, stackModeButtons.ipv6, stackModeButtons.both, warpToggleEl, easyModeToggleEl, chatGPTClashToggleEl].filter(Boolean);
+const buttons = [stackModeButtons.ipv4, stackModeButtons.ipv6, stackModeButtons.both, warpToggleEl, easyModeToggleEl, homeNetworkToggleEl, chatGPTClashToggleEl].filter(Boolean);
 let latestNetwork = null;
+let uiBusy = false;
 const badgeState = {
   network: { stable: null, pending: null },
   warp: { stable: null, pending: null },
@@ -74,6 +79,14 @@ const fastStatusRefreshState = {
 const pendingToggleState = {
   warp: null,
   easyMode: null,
+  homeNetwork: null,
+};
+const homeNetworkState = {
+  profiles: [],
+  profilesError: '',
+  tunnelName: '',
+  status: null,
+  pending: false,
 };
 const chatGPTClashState = {
   enabled: false,
@@ -124,6 +137,7 @@ function setTargetAdapter(value, persist = true) {
     storeTargetAdapter(next);
   }
   syncEasyModeState(latestNetwork);
+  syncHomeNetworkState(latestNetwork);
   syncDnsEditor(latestNetwork);
 }
 
@@ -133,9 +147,11 @@ for (const select of targetAdapterSelects) {
 }
 
 function setBusy(busy) {
+  uiBusy = busy;
   buttons.forEach(btn => {
     btn.disabled = busy || (btn === chatGPTClashToggleEl && chatGPTClashState.pending);
   });
+  syncHomeNetworkState(latestNetwork);
 }
 
 function stopFastStatusRefresh() {
@@ -187,7 +203,7 @@ function getStableEasyModeValue() {
 
 function clearPendingToggle(kind) {
   pendingToggleState[kind] = null;
-  if (!pendingToggleState.warp && !pendingToggleState.easyMode) {
+  if (!pendingToggleState.warp && !pendingToggleState.easyMode && !pendingToggleState.homeNetwork) {
     stopFastStatusRefresh();
   }
 }
@@ -510,7 +526,7 @@ function syncChatGPTClashControls() {
     setText(chatGPTClashStateEl, chatGPTClashState.detail || '分流已生效，但 Clash 本地端口不可用');
     return;
   }
-  setText(chatGPTClashStateEl, `当前开启：ChatGPT → ${chatGPTClashState.proxyAddress}；其他 → WARP`);
+  setText(chatGPTClashStateEl, `当前开启：ChatGPT → ${chatGPTClashState.proxyAddress}；其他 → 当前网络（WARP/家庭 WireGuard）`);
 }
 
 function updateChatGPTClashState(snapshot) {
@@ -780,8 +796,20 @@ function syncDnsEditor(network, force = false) {
   setDnsStatus('回车或点击文本框外保存');
 }
 
+function isHomeNetworkModeActive(network, adapter) {
+  const home = network?.homeNetwork;
+  if (!home?.connected || !adapter) {
+    return false;
+  }
+  const runtimeMode = network?.freeFlowMode;
+  if (runtimeMode?.active && runtimeMode.mode === 'home') {
+    return !runtimeMode.interface || runtimeMode.interface === adapter.name;
+  }
+  return !!adapter.ipv6Enabled && !adapter.ipv4Enabled;
+}
+
 function isFreeFlowModeActive(adapter) {
-  return isWarpModeActive(latestNetwork, adapter);
+  return isWarpModeActive(latestNetwork, adapter) || isHomeNetworkModeActive(latestNetwork, adapter);
 }
 
 async function saveDnsEditor() {
@@ -1025,6 +1053,192 @@ function startWarpStatusPoll() {
   setTimeout(poll, 1000);
 }
 
+function getStableHomeNetworkValue() {
+  return !!homeNetworkState.status?.running;
+}
+
+function homeProfileExists(name) {
+  const wanted = typeof name === 'string' ? name.trim() : '';
+  return wanted !== '' && homeNetworkState.profiles.some(profile => profile.toLowerCase() === wanted.toLowerCase());
+}
+
+function updateHomeNetworkStatus(status, configuredTunnelName = '') {
+  if (!status || typeof status !== 'object') {
+    return;
+  }
+  homeNetworkState.status = status;
+  const reportedName = typeof status.tunnelName === 'string' ? status.tunnelName.trim() : '';
+  const configuredName = typeof configuredTunnelName === 'string' ? configuredTunnelName.trim() : '';
+  const nextName = reportedName || configuredName;
+  if (nextName && (!homeNetworkState.tunnelName || status.running)) {
+    homeNetworkState.tunnelName = nextName;
+  }
+}
+
+function formatHomeTransfer(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let amount = bytes;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  const precision = amount >= 100 || unitIndex === 0 ? 0 : 1;
+  return `${amount.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatHomeHandshake(status) {
+  const seconds = Number(status?.handshakeAgeSeconds);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return '刚刚';
+  }
+  if (seconds < 60) {
+    return `${Math.floor(seconds)} 秒前`;
+  }
+  if (seconds < 3600) {
+    return `${Math.floor(seconds / 60)} 分钟前`;
+  }
+  return `${Math.floor(seconds / 3600)} 小时前`;
+}
+
+function renderHomeTunnelSelect() {
+  if (!homeTunnelSelectEl) {
+    return;
+  }
+  const profiles = Array.isArray(homeNetworkState.profiles) ? homeNetworkState.profiles : [];
+  const statusName = typeof homeNetworkState.status?.tunnelName === 'string' ? homeNetworkState.status.tunnelName.trim() : '';
+  const requestedName = (homeNetworkState.tunnelName || statusName || '').trim();
+  const matchedProfile = profiles.find(profile => profile.toLowerCase() === requestedName.toLowerCase()) || '';
+  const selectedName = matchedProfile || requestedName;
+  const optionKey = `${profiles.join('\u0000')}\u0001${selectedName}`;
+
+  if (homeTunnelSelectEl.dataset.homeProfilesKey !== optionKey) {
+    homeTunnelSelectEl.innerHTML = '';
+    if (profiles.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '未发现已导入的 WireGuard 配置';
+      homeTunnelSelectEl.appendChild(option);
+    } else {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '请选择家庭 WireGuard 隧道';
+      homeTunnelSelectEl.appendChild(placeholder);
+      for (const profile of profiles) {
+        const option = document.createElement('option');
+        option.value = profile;
+        option.textContent = profile;
+        homeTunnelSelectEl.appendChild(option);
+      }
+      if (selectedName && !matchedProfile) {
+        const missing = document.createElement('option');
+        missing.value = selectedName;
+        missing.textContent = `${selectedName}（未找到导入配置）`;
+        homeTunnelSelectEl.appendChild(missing);
+      }
+    }
+    homeTunnelSelectEl.dataset.homeProfilesKey = optionKey;
+  }
+  homeTunnelSelectEl.value = selectedName;
+}
+
+function syncHomeNetworkState(network) {
+  if (network?.homeNetwork) {
+    updateHomeNetworkStatus(network.homeNetwork);
+  }
+  renderHomeTunnelSelect();
+
+  const status = homeNetworkState.status || {};
+  const running = !!status.running;
+  const pending = homeNetworkState.pending || !!pendingToggleState.homeNetwork;
+  const selectedName = (homeNetworkState.tunnelName || '').trim();
+  const hasProfile = homeProfileExists(selectedName);
+
+  if (homeTunnelSelectEl) {
+    homeTunnelSelectEl.disabled = uiBusy || pending || running || homeNetworkState.profiles.length === 0;
+  }
+  if (homeNetworkRefreshBtnEl) {
+    homeNetworkRefreshBtnEl.disabled = uiBusy || pending;
+  }
+  if (homeNetworkToggleEl) {
+    homeNetworkToggleEl.checked = pending ? getStableHomeNetworkValue() : running;
+    homeNetworkToggleEl.disabled = uiBusy || pending || (!running && (!status.installed || !hasProfile));
+  }
+  if (!homeNetworkStateEl) {
+    return;
+  }
+
+  if (pending) {
+    setText(homeNetworkStateEl, pendingToggleState.homeNetwork?.enabled ? '正在连接家庭 WireGuard...' : '正在关闭家庭 WireGuard...');
+    return;
+  }
+  if (!status.installed) {
+    setText(homeNetworkStateEl, '请先安装官方 WireGuard for Windows');
+    return;
+  }
+  if (homeNetworkState.profilesError) {
+    setText(homeNetworkStateEl, `读取已导入的 WireGuard 配置失败：${homeNetworkState.profilesError}`);
+    return;
+  }
+  if (homeNetworkState.profiles.length === 0) {
+    setText(homeNetworkStateEl, '请先在官方 WireGuard 客户端导入家庭 .conf 配置');
+    return;
+  }
+  if (running && status.connected) {
+    setText(homeNetworkStateEl, `已连接 · 最近握手 ${formatHomeHandshake(status)} · 下行 ${formatHomeTransfer(status.receivedBytes)} / 上行 ${formatHomeTransfer(status.sentBytes)}`);
+    return;
+  }
+  if (running && status.error) {
+    setText(homeNetworkStateEl, `隧道服务已启动，但状态检查失败：${status.error}`);
+    return;
+  }
+  if (running) {
+    setText(homeNetworkStateEl, '隧道服务运行中，正在等待 WireGuard 握手...');
+    return;
+  }
+  if (!hasProfile) {
+    setText(homeNetworkStateEl, '请选择家庭 WireGuard 隧道');
+    return;
+  }
+  setText(homeNetworkStateEl, '当前关闭');
+}
+
+async function loadHomeNetwork() {
+  const res = await fetch('/api/v1/home-network', { cache: 'no-store' });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.detail || data.error || 'request failed');
+  }
+  homeNetworkState.profiles = Array.isArray(data.profiles)
+    ? data.profiles.filter(profile => typeof profile === 'string' && profile.trim() !== '')
+    : [];
+  homeNetworkState.profilesError = typeof data.profilesError === 'string' ? data.profilesError : '';
+  updateHomeNetworkStatus(data.status, data.tunnelName);
+  if (latestNetwork) {
+    latestNetwork = { ...latestNetwork, homeNetwork: homeNetworkState.status || {} };
+  }
+  syncHomeNetworkState(latestNetwork);
+  syncEasyModeState(latestNetwork);
+  updateFreeFlowBadge();
+  return data;
+}
+
+function startHomeNetworkStatusPoll() {
+  const poll = async () => {
+    try {
+      await loadHomeNetwork();
+    } catch (err) {
+      console.error('家庭 WireGuard 状态轮询失败:', err);
+    }
+    setTimeout(poll, 5000);
+  };
+  setTimeout(poll, 3000);
+}
+
 function syncWarpState() {
   if (!warpToggleEl || !warpStateEl) {
     return;
@@ -1084,9 +1298,12 @@ function syncEasyModeState(network) {
   }
   const adapter = getSelectedAdapter(network);
   const enabled = isWarpModeActive(network, adapter);
+  const homeEnabled = isHomeNetworkModeActive(network, adapter);
   easyModeToggleEl.checked = enabled;
   if (enabled) {
     setText(easyModeStateEl, '当前已开启');
+  } else if (homeEnabled) {
+    setText(easyModeStateEl, '家庭网络 WireGuard 已接管');
   } else if (warpConnected && adapter?.ipv4Enabled && adapter?.ipv6Enabled) {
     setText(easyModeStateEl, 'WARP 已连接，但当前为双栈（非免流）');
   } else if (warpConnected && latestNetwork?.warp?.underlay?.ok === false) {
@@ -1152,6 +1369,7 @@ function renderStatus(data, force = false) {
   syncTargetAdapterSelects(getAdapterOptions(data?.network), data?.network);
   syncWarpSettingsState(data?.network);
   renderNetwork(data?.network);
+  syncHomeNetworkState(data?.network);
   syncIpv6CheckFromNetwork(data?.network);
   updateStatusBadges(data?.network, force);
   syncDnsEditor(data?.network, force);
@@ -1476,6 +1694,75 @@ async function applyEasyMode(enabled) {
   }
 }
 
+async function applyHomeNetwork(enabled) {
+  if (!homeNetworkToggleEl || !homeNetworkStateEl) {
+    return;
+  }
+  if (pendingToggleState.homeNetwork) {
+    homeNetworkToggleEl.checked = getStableHomeNetworkValue();
+    return;
+  }
+
+  const selectedName = (homeTunnelSelectEl?.value || homeNetworkState.tunnelName || homeNetworkState.status?.tunnelName || '').trim();
+  if (enabled && !homeProfileExists(selectedName)) {
+    homeNetworkToggleEl.checked = getStableHomeNetworkValue();
+    setText(homeNetworkStateEl, '请先选择已在官方 WireGuard 客户端导入的家庭隧道');
+    showConfigurationFailure('请先选择或导入家庭 WireGuard 配置');
+    return;
+  }
+
+  if (selectedName) {
+    homeNetworkState.tunnelName = selectedName;
+  }
+  showConfigurationToast('家庭网络', enabled ? '正在连接家里的 Ubuntu WireGuard 服务器' : '正在关闭家庭 WireGuard 并恢复双栈');
+  homeNetworkState.pending = true;
+  markPendingToggle('homeNetwork', enabled, 'home-network.ok');
+  homeNetworkToggleEl.checked = getStableHomeNetworkValue();
+  syncHomeNetworkState(latestNetwork);
+  setBusy(true);
+
+  let succeeded = false;
+  try {
+    const data = await postActionSilently('/api/v1/home-network', {
+      action: enabled ? 'start' : 'stop',
+      ifName: currentIfName(),
+      tunnelName: selectedName,
+    });
+    updateHomeNetworkStatus(data.status, data.tunnelName);
+    if (typeof data.tunnelName === 'string' && data.tunnelName.trim() !== '') {
+      homeNetworkState.tunnelName = data.tunnelName.trim();
+    }
+    succeeded = true;
+  } catch (err) {
+    if (err.data?.status) {
+      updateHomeNetworkStatus(err.data.status, err.data.tunnelName);
+    }
+    appendLog(`家庭 WireGuard 切换失败：${err.message}`);
+    showConfigurationFailure(err.message);
+    throw err;
+  } finally {
+    homeNetworkState.pending = false;
+    if (pendingToggleState.homeNetwork) {
+      clearPendingToggle('homeNetwork');
+    }
+    setBusy(false);
+    try {
+      await refreshStatus(true);
+    } catch (_) {
+      // refreshStatus currently reports failures in the operation log.
+    }
+    try {
+      await loadHomeNetwork();
+    } catch (err) {
+      console.error('家庭 WireGuard 状态刷新失败:', err);
+      syncHomeNetworkState(latestNetwork);
+    }
+    if (succeeded) {
+      showConfigurationSuccess();
+    }
+  }
+}
+
 let lastNetworkCollectedAt = '';
 let lastSwitchTime = 0;
 
@@ -1561,6 +1848,35 @@ if (advancedModeToggleEl) {
 if (easyModeToggleEl) {
   easyModeToggleEl.addEventListener('change', () => {
     applyEasyMode(easyModeToggleEl.checked).catch(err => console.error('操作失败:', err));
+  });
+}
+
+if (homeNetworkToggleEl) {
+  homeNetworkToggleEl.addEventListener('change', () => {
+    applyHomeNetwork(homeNetworkToggleEl.checked).catch(err => console.error('操作失败:', err));
+  });
+}
+
+if (homeTunnelSelectEl) {
+  homeTunnelSelectEl.addEventListener('change', () => {
+    homeNetworkState.tunnelName = homeTunnelSelectEl.value.trim();
+    syncHomeNetworkState(latestNetwork);
+  });
+}
+
+if (homeNetworkRefreshBtnEl) {
+  homeNetworkRefreshBtnEl.addEventListener('click', async () => {
+    homeNetworkRefreshBtnEl.disabled = true;
+    try {
+      await loadHomeNetwork();
+      appendLog('家庭 WireGuard 配置已刷新');
+    } catch (err) {
+      appendLog(`家庭 WireGuard 配置刷新失败：${err.message}`);
+      setText(homeNetworkStateEl, `刷新失败：${err.message}`);
+      showConfigurationFailure(err.message);
+    } finally {
+      syncHomeNetworkState(latestNetwork);
+    }
   });
 }
 
@@ -1691,7 +2007,9 @@ setAdvancedMode(false);
 showInitializationToast();
 
 refreshStatus(true);
+loadHomeNetwork().catch(err => console.error('家庭 WireGuard 状态加载失败:', err));
 startWarpStatusPoll();
+startHomeNetworkStatusPoll();
 window.addEventListener('load', () => {
   scheduleDeferredStartupTasks();
   checkAdminStatus().catch(err => console.error('操作失败:', err));

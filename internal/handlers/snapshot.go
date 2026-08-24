@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	appsettings "bknetwork/internal/settings"
 )
 
 type adapterBasic struct {
@@ -63,6 +65,22 @@ type warpSettingsSnapshot struct {
 	Error          string `json:"error,omitempty"`
 }
 
+// homeNetworkSnapshot deliberately contains connection metadata only. The
+// WireGuard configuration and its private key remain in the official client's
+// protected configuration store.
+type homeNetworkSnapshot struct {
+	Installed        bool   `json:"installed"`
+	TunnelName       string `json:"tunnelName,omitempty"`
+	ServiceState     string `json:"serviceState,omitempty"`
+	Running          bool   `json:"running"`
+	Connected        bool   `json:"connected"`
+	LastHandshakeAt  string `json:"lastHandshakeAt,omitempty"`
+	HandshakeAgeSecs int64  `json:"handshakeAgeSeconds,omitempty"`
+	ReceivedBytes    uint64 `json:"receivedBytes,omitempty"`
+	SentBytes        uint64 `json:"sentBytes,omitempty"`
+	Error            string `json:"error,omitempty"`
+}
+
 type freeFlowModeSnapshot struct {
 	Mode      string `json:"mode"`
 	Interface string `json:"interface,omitempty"`
@@ -79,6 +97,7 @@ type networkSnapshot struct {
 	CloudflareTCP     tcpProbeSnapshot     `json:"cloudflareTcp"`
 	Warp              warpSnapshot         `json:"warp"`
 	WarpSettings      warpSettingsSnapshot `json:"warpSettings"`
+	HomeNetwork       homeNetworkSnapshot  `json:"homeNetwork"`
 }
 
 func normalizeStringSlice(v any) []string {
@@ -125,10 +144,12 @@ func collectNetworkSnapshot() (networkSnapshot, error) {
 		warpSettings     warpSettingsSnapshot
 		warpNetworkRaw   string
 		tcpProbe         tcpProbeSnapshot
+		homeNetwork      homeNetworkSnapshot
 	)
 
 	var wg sync.WaitGroup
 	wg.Add(12)
+	wg.Add(1)
 	// 1. PowerShell: Get-NetAdapter (保留，需要 MAC 和描述信息)
 	go func() {
 		defer wg.Done()
@@ -246,6 +267,21 @@ func collectNetworkSnapshot() (networkSnapshot, error) {
 		defer cancel()
 		tcpProbe = probeCloudflareTCP(ctx)
 	}()
+
+	// 11. Home WireGuard: only service/handshake metadata. This never reads
+	// the WireGuard configuration or exposes its private key.
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(baseCtx, timeoutMedium)
+		defer cancel()
+		cfg, err := appsettings.Load()
+		if err != nil {
+			homeNetwork.Error = err.Error()
+			return
+		}
+		homeNetwork = probeHomeNetworkStatus(ctx, cfg.HomeTunnelName)
+	}()
+
 	wg.Wait()
 
 	basics, basicsErr := decodeJSONList[adapterBasic](basicRaw)
@@ -463,6 +499,11 @@ func collectNetworkSnapshot() (networkSnapshot, error) {
 			mode.Mode = "warp"
 			mode.Active = true
 		}
+		if isTarget && runtimeMode.Mode == "home" && homeNetwork.Connected && ipv6Only {
+			adapters[i].FreeFlow = true
+			mode.Mode = "home"
+			mode.Active = true
+		}
 	}
 
 	online := hasOnlineAdapter(adapters)
@@ -481,6 +522,7 @@ func collectNetworkSnapshot() (networkSnapshot, error) {
 		CloudflareTCP:     tcpProbe,
 		Warp:              warpStatus,
 		WarpSettings:      warpSettings,
+		HomeNetwork:       homeNetwork,
 	}, nil
 }
 

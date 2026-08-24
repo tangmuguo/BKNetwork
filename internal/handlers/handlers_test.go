@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -367,5 +370,190 @@ func TestSelectHighestReleaseTag(t *testing.T) {
 				t.Fatalf("selectHighestReleaseTag() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestValidateHomeTunnelName(t *testing.T) {
+	for _, name := range []string{"home", "home-v6", "home_v6", "home.v6", "home=wg+1"} {
+		if err := validateHomeTunnelName(name); err != nil {
+			t.Fatalf("validateHomeTunnelName(%q) unexpected error: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", "has space", "../home", "home/route", strings.Repeat("a", 33)} {
+		if err := validateHomeTunnelName(name); err == nil {
+			t.Fatalf("validateHomeTunnelName(%q) unexpectedly succeeded", name)
+		}
+	}
+}
+
+func TestParseHomeServiceState(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		{raw: "STATE              : 1  STOPPED", want: "stopped"},
+		{raw: "STATE              : 2  START_PENDING", want: "start-pending"},
+		{raw: "STATE              : 4  RUNNING", want: "running"},
+		{raw: "service is running", want: "running"},
+		{raw: "unrecognized", want: ""},
+	}
+	for _, tc := range tests {
+		if got := parseHomeServiceState(tc.raw); got != tc.want {
+			t.Fatalf("parseHomeServiceState(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestParseHomeWireGuardDump(t *testing.T) {
+	metrics, err := parseHomeWireGuardDump("private public 51820 off\npeer-one psk [2001:db8::20]:41580 0.0.0.0/0,::/0 1700000000 1234 5678 25\npeer-two psk [2001:db8::21]:41580 ::/0 1690000000 10 20 25\n")
+	if err != nil {
+		t.Fatalf("parseHomeWireGuardDump() error = %v", err)
+	}
+	if got, want := metrics.HandshakeAt, time.Unix(1700000000, 0); !got.Equal(want) {
+		t.Fatalf("handshake = %v, want %v", got, want)
+	}
+	if metrics.ReceivedBytes != 1244 || metrics.SentBytes != 5698 {
+		t.Fatalf("transfers = %d/%d, want 1244/5698", metrics.ReceivedBytes, metrics.SentBytes)
+	}
+}
+
+func TestParseHomeWireGuardDumpRequiresPeer(t *testing.T) {
+	if _, err := parseHomeWireGuardDump("private public 51820 off\n"); err == nil {
+		t.Fatal("parseHomeWireGuardDump() unexpectedly accepted an interface-only dump")
+	}
+}
+
+func TestParseHomeWireGuardMetrics(t *testing.T) {
+	metrics, err := parseHomeWireGuardMetrics("peer-one 1700000000\npeer-two 1690000000\n", "peer-one 1234 5678\npeer-two 10 20\n")
+	if err != nil {
+		t.Fatalf("parseHomeWireGuardMetrics() error = %v", err)
+	}
+	if got, want := metrics.HandshakeAt, time.Unix(1700000000, 0); !got.Equal(want) {
+		t.Fatalf("handshake = %v, want %v", got, want)
+	}
+	if metrics.ReceivedBytes != 1244 || metrics.SentBytes != 5698 {
+		t.Fatalf("transfers = %d/%d, want 1244/5698", metrics.ReceivedBytes, metrics.SentBytes)
+	}
+}
+
+func TestParseHomeWireGuardMetricsRequiresPeer(t *testing.T) {
+	if _, err := parseHomeWireGuardMetrics("", ""); err == nil {
+		t.Fatal("parseHomeWireGuardMetrics() unexpectedly accepted empty peer output")
+	}
+}
+
+func TestParseHomeWireGuardAllowedIPsSpaceSeparated(t *testing.T) {
+	allowed, err := parseHomeWireGuardAllowedIPs("peer-one\t0.0.0.0/0 ::/0\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(allowed, ","); got != "0.0.0.0/0,::/0" {
+		t.Fatalf("allowed IPs = %q", got)
+	}
+	coverage := classifyHomeAllowedIPs(allowed)
+	if !coverage.IPv4 || !coverage.IPv6 {
+		t.Fatalf("dual-stack defaults not detected: %#v", coverage)
+	}
+}
+
+func TestHomeTunnelIPv4ProbeDiagnostics(t *testing.T) {
+	if targets := homeTunnelIPv4ProbeTargets(); len(targets) < 3 {
+		t.Fatalf("probe target count = %d, want at least 3", len(targets))
+	}
+	if got := homeCounterDelta(100, 125); got != 25 {
+		t.Fatalf("counter delta = %d, want 25", got)
+	}
+	if got := homeCounterDelta(100, 5); got != 5 {
+		t.Fatalf("reset counter delta = %d, want 5", got)
+	}
+	for _, tc := range []struct {
+		sent, received uint64
+		want           string
+	}{
+		{sent: 0, received: 0, want: "Windows"},
+		{sent: 128, received: 0, want: "Ubuntu"},
+		{sent: 128, received: 64, want: "TCP"},
+	} {
+		if got := describeHomeProbeTraffic(tc.sent, tc.received); !strings.Contains(got, tc.want) {
+			t.Fatalf("describeHomeProbeTraffic(%d, %d) = %q, want %q", tc.sent, tc.received, got, tc.want)
+		}
+	}
+}
+
+func TestHomeWireGuardAllowedIPCoverage(t *testing.T) {
+	allowed, err := parseHomeWireGuardAllowedIPs("peer-one\t0.0.0.0/0, ::/0\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(allowed, ","); got != "0.0.0.0/0,::/0" {
+		t.Fatalf("allowed IPs = %q", got)
+	}
+	coverage := classifyHomeAllowedIPs(allowed)
+	if !coverage.IPv4 || !coverage.IPv6 {
+		t.Fatalf("dual-stack defaults not detected: %#v", coverage)
+	}
+
+	splitCoverage := classifyHomeAllowedIPs([]string{"0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"})
+	if !splitCoverage.IPv4 || !splitCoverage.IPv6 {
+		t.Fatalf("split defaults not detected: %#v", splitCoverage)
+	}
+	missingIPv4 := classifyHomeAllowedIPs([]string{"::/0"})
+	if missingIPv4.IPv4 || !missingIPv4.IPv6 {
+		t.Fatalf("IPv6-only route classified incorrectly: %#v", missingIPv4)
+	}
+}
+
+func TestContainsHomeTunnelProfile(t *testing.T) {
+	profiles := []string{"Home-IPv6", "backup"}
+	if !containsHomeTunnelProfile(profiles, "home-ipv6") {
+		t.Fatal("profile lookup should be case insensitive")
+	}
+	if containsHomeTunnelProfile(profiles, "missing") {
+		t.Fatal("profile lookup unexpectedly matched a missing profile")
+	}
+}
+func TestHomeNetworkHandlerListsImportedProfiles(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("APPDATA", configDir)
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+	programFiles := t.TempDir()
+	t.Setenv("ProgramFiles", programFiles)
+
+	profileDir := filepath.Join(programFiles, "WireGuard", "Data", "Configurations")
+	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The content is deliberately not a WireGuard config. The endpoint must only
+	// discover the protected filename and must not read private configuration data.
+	if err := os.WriteFile(filepath.Join(profileDir, "home-v6.conf.dpapi"), []byte("protected-by-wireguard"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := appsettings.Save(appsettings.Settings{HomeTunnelName: "home-v6"}); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/home-network", nil)
+	HomeNetworkHandler(nil).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("HomeNetworkHandler GET status = %d; want 200", recorder.Code)
+	}
+	var response struct {
+		OK         bool                `json:"ok"`
+		TunnelName string              `json:"tunnelName"`
+		Profiles   []string            `json:"profiles"`
+		Status     homeNetworkSnapshot `json:"status"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || response.TunnelName != "home-v6" {
+		t.Fatalf("unexpected response metadata: %#v", response)
+	}
+	if len(response.Profiles) != 1 || response.Profiles[0] != "home-v6" {
+		t.Fatalf("profiles = %#v; want [home-v6]", response.Profiles)
+	}
+	if response.Status.TunnelName != "home-v6" {
+		t.Fatalf("status tunnel = %q; want home-v6", response.Status.TunnelName)
 	}
 }

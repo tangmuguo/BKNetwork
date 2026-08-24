@@ -2,7 +2,7 @@ package appinfo
 
 const (
 	Name        = "BKNetwork"
-	Version     = "1.0.1"
+	Version     = "2.0.0"
 	ReleaseTag  = "v" + Version
 	DisplayName = Name + " " + ReleaseTag
 	LogFilename = "bknetwork.log"

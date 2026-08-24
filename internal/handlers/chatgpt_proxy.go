@@ -162,7 +162,7 @@ func buildChatGPTProxyPAC(proxyAddress string) string {
 		return "function FindProxyForURL(url, host) { return \"DIRECT\"; }\n"
 	}
 	domains, _ := json.Marshal(chatGPTProxyDomains)
-	return fmt.Sprintf(`// %s - ChatGPT via Clash Verge, everything else direct/WARP.
+	return fmt.Sprintf(`// %s - ChatGPT via Clash Verge, everything else direct through the active network tunnel.
 var BKNETWORK_CHATGPT_DOMAINS = %s;
 function FindProxyForURL(url, host) {
   host = String(host || "").toLowerCase();

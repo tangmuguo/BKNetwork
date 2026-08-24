@@ -44,6 +44,7 @@ func NewServer(addr string) *Server {
 	mux.HandleFunc("/api/v1/warp", handlers.WarpHandler(hub))
 	mux.HandleFunc("/api/v1/warp-mode", handlers.WarpModeHandler(hub))
 	mux.HandleFunc("/api/v1/warp-status", handlers.WarpStatusHandler())
+	mux.HandleFunc("/api/v1/home-network", handlers.HomeNetworkHandler(hub))
 	mux.HandleFunc("/api/v1/chatgpt-proxy", handlers.ChatGPTProxyHandler(hub))
 	mux.HandleFunc("/api/v1/chatgpt-proxy.pac", handlers.ChatGPTProxyPACHandler())
 	mux.HandleFunc("/api/v1/settings", handlers.SettingsHandler(hub))

@@ -45,6 +45,9 @@ const (
 
 var warpModeMu sync.Mutex
 
+// tunnelModeMu shares WARP's mode lock so the two default-route tunnels are mutually exclusive.
+var tunnelModeMu = &warpModeMu
+
 type apiResponse struct {
 	OK      bool        `json:"ok"`
 	Error   string      `json:"error,omitempty"`
@@ -141,6 +144,17 @@ func SwitchStackHandler(hub *events.Hub) http.HandlerFunc {
 			return
 		}
 
+		tunnelModeMu.Lock()
+		defer tunnelModeMu.Unlock()
+		if state := getFreeFlowRuntimeState(); state.Mode == "home" && (state.Interface == "" || state.Interface == payload.IfName) && payload.Mode != "ipv6" {
+			if _, homeErr := stopConfiguredHomeTunnel(); homeErr != nil {
+				writeJSON(w, map[string]interface{}{"error": "切换 IP 栈前无法关闭家庭 WireGuard 隧道", "detail": homeErr.Error()}, http.StatusBadGateway)
+				notify(hub, "switch.error", "failed to stop home WireGuard tunnel", map[string]interface{}{"detail": homeErr.Error()})
+				return
+			}
+			clearFreeFlowRuntimeState("")
+		}
+
 		out, err := applyNetworkMode(payload.IfName, payload.Mode)
 		if err != nil {
 			result := map[string]interface{}{
@@ -191,6 +205,29 @@ func WarpHandler(hub *events.Hub) http.HandlerFunc {
 			writeJSON(w, map[string]string{"error": "warp-cli not found; please install Cloudflare WARP client"}, http.StatusBadRequest)
 			notify(hub, "warp.error", "warp-cli not found", nil)
 			return
+		}
+
+		if payload.Action == "start" {
+			tunnelModeMu.Lock()
+			defer tunnelModeMu.Unlock()
+			if _, homeErr := stopConfiguredHomeTunnel(); homeErr != nil {
+				writeJSON(w, map[string]interface{}{"error": "无法关闭家庭 WireGuard 隧道", "detail": homeErr.Error()}, http.StatusBadGateway)
+				notify(hub, "warp.error", "failed to stop home WireGuard tunnel", map[string]interface{}{"detail": homeErr.Error()})
+				return
+			}
+			if state := getFreeFlowRuntimeState(); state.Mode == "home" {
+				restoreIfName := strings.TrimSpace(state.Interface)
+				if restoreIfName == "" {
+					restoreIfName = strings.TrimSpace(payload.IfName)
+				}
+				if restoreIfName != "" {
+					if _, err := applyNetworkMode(restoreIfName, "both"); err != nil {
+						writeJSON(w, map[string]interface{}{"error": "关闭家庭模式后恢复双栈失败", "detail": err.Error()}, http.StatusInternalServerError)
+						return
+					}
+				}
+				clearFreeFlowRuntimeState("")
+			}
 		}
 
 		if payload.Action == "start" && strings.TrimSpace(payload.IfName) != "" {
@@ -288,6 +325,20 @@ func WarpModeHandler(hub *events.Hub) http.HandlerFunc {
 			notify(hub, "warp-mode.ok", "WARP free-flow mode disabled", result)
 			return
 		}
+
+		homeState := getFreeFlowRuntimeState()
+		if _, homeErr := stopConfiguredHomeTunnel(); homeErr != nil {
+			writeJSON(w, map[string]interface{}{"error": "无法关闭家庭 WireGuard 隧道", "detail": homeErr.Error()}, http.StatusBadGateway)
+			notify(hub, "warp-mode.error", "failed to stop home WireGuard tunnel", map[string]interface{}{"detail": homeErr.Error()})
+			return
+		}
+		if homeState.Mode == "home" && strings.TrimSpace(homeState.Interface) != "" {
+			if _, restoreErr := applyNetworkMode(homeState.Interface, "both"); restoreErr != nil {
+				writeJSON(w, map[string]interface{}{"error": "关闭家庭模式后恢复双栈失败", "detail": restoreErr.Error()}, http.StatusInternalServerError)
+				return
+			}
+		}
+		clearFreeFlowRuntimeState("")
 
 		preflightCtx, preflightCancel := context.WithTimeout(context.Background(), timeoutShort)
 		preflight := probeWarpPreflight(preflightCtx, payload.IfName)

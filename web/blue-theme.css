@@ -470,6 +470,7 @@ h1 {
 }
 
 .feature-copy,
+.home-network-copy,
 .clash-split-copy {
   min-width: 0;
   flex: 1;
@@ -498,6 +499,61 @@ h1 {
   font-weight: 700;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.home-network-card { align-items: center; }
+
+.home-tunnel-row {
+  width: min(100%, 1040px);
+  min-height: 40px;
+  margin-top: 12px;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #c9dcf2;
+  border-radius: 9px;
+  background: #fbfdff;
+}
+
+.home-tunnel-row label {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  color: #607693;
+  background: #f5f9ff;
+  border-right: 1px solid #d5e4f5;
+}
+
+.home-tunnel-select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 34px 8px 14px;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.home-tunnel-select:focus {
+  box-shadow: inset 0 0 0 2px rgba(17, 103, 237, 0.18);
+}
+
+.home-refresh-btn {
+  align-self: stretch;
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 0;
+  border-left: 1px solid #d5e4f5;
+  border-radius: 0;
+  background: #f5f9ff;
+  color: #2766b0;
+  font-weight: 700;
+}
+
+.home-refresh-btn:hover:not(:disabled) {
+  background: #eaf3ff;
+  color: #0758d9;
 }
 
 .clash-split-card { align-items: center; }
@@ -917,14 +973,44 @@ select:focus,
   }
 
   .feature-copy,
+  .home-network-copy,
   .clash-split-copy {
     flex-basis: calc(100% - 70px);
   }
 
   .easy-mode-card > .toggle,
+  .home-network-card > .toggle,
   .clash-split-card > .toggle,
   .warp-toggle-card > .toggle {
     margin-left: auto;
+  }
+
+  .home-tunnel-row {
+    align-items: stretch;
+    flex-direction: column;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .home-tunnel-row label {
+    padding: 0 0 7px;
+    border: 0;
+    background: transparent;
+  }
+
+  .home-tunnel-select {
+    border: 1px solid #c9dcf2;
+    border-radius: 9px;
+    background: #fbfdff;
+  }
+
+  .home-refresh-btn {
+    align-self: flex-start;
+    min-height: 36px;
+    margin-top: 8px;
+    border: 1px solid #c9dcf2;
+    border-radius: 8px;
   }
 
   .clash-address-row {

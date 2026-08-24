@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>BKNetwork</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="styles.css?v=7" />
-  <link rel="stylesheet" href="blue-theme.css?v=1" />
+  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="blue-theme.css?v=2" />
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -137,7 +137,7 @@
           </div>
           <div class="hero-copy">
             <h1>北科校园网助手</h1>
-            <p class="lead">v1.0.1</p>
+            <p class="lead">v2.0.0</p>
             <div class="badge ipv6-check-badge" id="ipv6CheckBadge">
               <span id="ipv6CheckDot" class="dot warn"></span>
               <span id="ipv6CheckText" class="ipv6-check-text">正在检测 IPv6 地址...</span>
@@ -197,11 +197,31 @@
           <span class="toggle-track" aria-hidden="true"></span>
         </span>
       </label>
+
+      <div class="easy-mode-secondary-card home-network-card">
+        <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-server"/></svg></span>
+        <div class="home-network-copy">
+          <div class="easy-mode-title">&#23478;&#24237;&#32593;&#32476; WireGuard</div>
+          <div class="easy-mode-desc">&#36890;&#36807;&#23478;&#37324;&#30340; Ubuntu &#26381;&#21153;&#22120;&#19978;&#32593;&#65292;&#26367;&#20195; Cloudflare WARP&#12290;&#35831;&#20808;&#22312;&#23448;&#26041; WireGuard &#23458;&#25143;&#31471;&#23548;&#20837;&#23478;&#24237;&#37197;&#32622;&#65288;Endpoint &#20363;&#22914; [&#20844;&#32593; IPv6]:51820&#65289;&#12290;</div>
+          <div class="home-tunnel-row">
+            <label for="homeTunnelSelect">&#23478;&#24237;&#38543;&#36947;</label>
+            <select id="homeTunnelSelect" class="home-tunnel-select" disabled>
+              <option value="">&#27491;&#22312;&#35835;&#21462;&#24050;&#23548;&#20837;&#30340; WireGuard &#37197;&#32622;...</option>
+            </select>
+            <button id="homeNetworkRefreshBtn" class="home-refresh-btn secondary" type="button">&#21047;&#26032;</button>
+          </div>
+          <div class="easy-mode-state" id="homeNetworkState">&#27491;&#22312;&#26816;&#26597; WireGuard...</div>
+        </div>
+        <label class="toggle" for="homeNetworkToggle">
+          <input id="homeNetworkToggle" type="checkbox" disabled />
+          <span class="toggle-track" aria-hidden="true"></span>
+        </label>
+      </div>
       <div class="easy-mode-secondary-card clash-split-card">
         <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-route"/></svg></span>
         <div class="clash-split-copy">
           <div class="easy-mode-title">ChatGPT → Clash Verge 分流</div>
-          <div class="easy-mode-desc">仅将 ChatGPT/OpenAI 必要域名交给 Clash；其余流量直连并继续由 WARP 承载。建议 Clash 使用系统代理、全局模式并选择日区节点，关闭 TUN。</div>
+          <div class="easy-mode-desc">仅将 ChatGPT/OpenAI 必要域名交给 Clash；其余流量直连并继续由 WARP 或家庭 WireGuard 承载。建议 Clash 使用系统代理、全局模式并选择日区节点，关闭 TUN。</div>
           <div class="clash-address-row">
             <label for="clashProxyAddress">Clash HTTP/mixed 地址</label>
             <input id="clashProxyAddress" class="clash-proxy-input" type="text" value="127.0.0.1:7897" autocomplete="off" spellcheck="false" inputmode="text" />
@@ -344,6 +364,6 @@
     </div>
   </main>
 
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@ type Settings struct {
 	SilentStart                       bool   `json:"silentStart"`
 	WarpAutoStart                     bool   `json:"warpAutoStart"`
 	WarpAppAutoStart                  bool   `json:"warpAppAutoStart"`
+	HomeTunnelName                    string `json:"homeTunnelName,omitempty"`
 	ChatGPTClashEnabled               bool   `json:"chatGPTClashEnabled"`
 	ClashProxyAddress                 string `json:"clashProxyAddress,omitempty"`
 	ChatGPTClashPreviousPACURL        string `json:"chatGPTClashPreviousPACURL,omitempty"`
