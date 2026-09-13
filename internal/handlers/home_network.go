@@ -106,7 +106,6 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		notify(hub, "home-network.error", "home network preflight failed", map[string]string{"detail": err.Error()})
 		return
 	}
-
 	profiles, err := listHomeTunnelProfiles()
 	if err != nil {
 		writeJSON(w, map[string]string{"error": "未找到 WireGuard 的受保护配置目录", "detail": err.Error()}, http.StatusBadRequest)
@@ -116,7 +115,14 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		writeJSON(w, map[string]string{"error": "未找到所选家庭 WireGuard 配置", "detail": "请先在官方 WireGuard 客户端导入 .conf 文件，再回到 BKNetwork 点击刷新。BKNetwork 不会读取或保存私钥。"}, http.StatusBadRequest)
 		return
 	}
-
+	routing, err := newHomeRoutingManager()
+	if err == nil {
+		err = routing.checkOwnership(ifName, tunnelName)
+	}
+	if err != nil {
+		writeJSON(w, map[string]string{"error": "无法准备家庭 WireGuard 的物理出口", "detail": err.Error()}, http.StatusConflict)
+		return
+	}
 	cfg, err := appsettings.Load()
 	if err != nil {
 		writeJSON(w, map[string]string{"error": err.Error()}, http.StatusInternalServerError)
@@ -132,7 +138,6 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		writeJSON(w, map[string]string{"error": err.Error()}, http.StatusInternalServerError)
 		return
 	}
-
 	warpOut, warpErr := disconnectWarpForHomeNetwork()
 	if warpErr != nil {
 		writeJSON(w, map[string]interface{}{"error": "无法关闭 Cloudflare WARP，未修改网络", "detail": warpErr.Error(), "warpOutput": warpOut}, http.StatusBadGateway)
@@ -140,40 +145,41 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		return
 	}
 	clearFreeFlowRuntimeState("")
-
+	fail := func(code int, message, detail string, result map[string]interface{}) {
+		failHomeNetworkStart(w, hub, ifName, tunnelName, code, message, detail, result)
+	}
+	// Preserve campus free-flow: IPv4 is carried INSIDE the IPv6 tunnel.
 	stackOut, stackErr := applyNetworkMode(ifName, "ipv6")
 	if stackErr != nil {
-		writeJSON(w, map[string]interface{}{"error": "切换到仅 IPv6 失败", "detail": stackErr.Error(), "stackOutput": stackOut}, http.StatusInternalServerError)
+		fail(http.StatusInternalServerError, "切换到仅 IPv6 失败", stackErr.Error(), map[string]interface{}{"stackOutput": stackOut})
 		return
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), homeConnectTimeout)
 	defer cancel()
+	// Forwarding/WeakHostSend can make Windows ignore WireGuard's physical
+	// interface selection. Disable them BEFORE WireGuard installs /0 routes.
+	if err := routing.prepare(ctx, ifName, tunnelName); err != nil {
+		fail(http.StatusBadGateway, "无法防止家庭 WireGuard 外层路由回环", err.Error(), nil)
+		return
+	}
 	serviceOut, serviceErr := ensureHomeTunnelService(ctx, tunnelName)
 	if serviceErr != nil {
-		rollbackOut, _ := applyNetworkMode(ifName, "both")
-		result := map[string]interface{}{"error": "无法启动家庭 WireGuard 隧道，已恢复双栈", "detail": serviceErr.Error(), "serviceOutput": serviceOut, "stackOutput": stackOut, "rollbackOutput": rollbackOut, "rolledBack": true}
-		writeJSON(w, result, http.StatusBadGateway)
-		notify(hub, "home-network.error", "failed to start home WireGuard tunnel", result)
+		fail(http.StatusBadGateway, "无法启动家庭 WireGuard 隧道", serviceErr.Error(), map[string]interface{}{"serviceOutput": serviceOut, "stackOutput": stackOut})
 		return
 	}
-
 	if _, err := waitForHomeTunnelRunning(ctx, tunnelName); err != nil {
-		_, _ = stopHomeTunnelForRollback(tunnelName)
-		rollbackOut, _ := applyNetworkMode(ifName, "both")
-		result := map[string]interface{}{"error": "家庭 WireGuard 隧道未能进入运行状态，已恢复双栈", "detail": err.Error(), "serviceOutput": serviceOut, "rollbackOutput": rollbackOut, "rolledBack": true}
-		writeJSON(w, result, http.StatusBadGateway)
-		notify(hub, "home-network.error", "home WireGuard service did not run", result)
+		fail(http.StatusBadGateway, "家庭 WireGuard 隧道未能进入运行状态", err.Error(), map[string]interface{}{"serviceOutput": serviceOut})
 		return
 	}
-
+	// Only public runtime Endpoint metadata is read. Host routes prevent the
+	// encrypted IPv6 packets from being routed back into the full tunnel.
+	if err := protectHomeTunnelEndpoints(ctx, routing, tunnelName); err != nil {
+		fail(http.StatusBadGateway, "家庭 WireGuard 的 IPv6 外层路由校验失败", err.Error(), nil)
+		return
+	}
 	allowedIPs, allowedErr := probeHomeWireGuardAllowedIPs(ctx, tunnelName)
 	if allowedErr != nil {
-		stopOut, _ := stopHomeTunnelForRollback(tunnelName)
-		rollbackOut, _ := applyNetworkMode(ifName, "both")
-		result := map[string]interface{}{"error": "无法验证家庭 WireGuard 路由，已恢复双栈", "detail": allowedErr.Error(), "serviceOutput": serviceOut, "stopOutput": stopOut, "rollbackOutput": rollbackOut, "rolledBack": true}
-		writeJSON(w, result, http.StatusBadGateway)
-		notify(hub, "home-network.error", "failed to inspect home WireGuard routes", result)
+		fail(http.StatusBadGateway, "无法验证家庭 WireGuard 路由", allowedErr.Error(), map[string]interface{}{"serviceOutput": serviceOut})
 		return
 	}
 	coverage := classifyHomeAllowedIPs(allowedIPs)
@@ -185,49 +191,76 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		if !coverage.IPv6 {
 			missing = append(missing, "IPv6 默认路由")
 		}
-		stopOut, _ := stopHomeTunnelForRollback(tunnelName)
-		rollbackOut, _ := applyNetworkMode(ifName, "both")
-		detail := fmt.Sprintf("WireGuard 配置未覆盖%s。握手只证明加密链路可达，不能证明 Windows 有互联网出口。请在官方 WireGuard 中把 [Peer] 的 AllowedIPs 改为 0.0.0.0/0, ::/0，并在 [Interface] 中设置可通过隧道访问的 DNS（例如 1.1.1.1, 2606:4700:4700::1111）", strings.Join(missing, "和"))
-		result := map[string]interface{}{"error": "家庭 WireGuard 路由配置不完整，已恢复双栈", "detail": detail, "allowedIPs": allowedIPs, "serviceOutput": serviceOut, "stopOutput": stopOut, "rollbackOutput": rollbackOut, "rolledBack": true}
-		writeJSON(w, result, http.StatusConflict)
-		notify(hub, "home-network.error", "home WireGuard default route missing", result)
+		detail := fmt.Sprintf("WireGuard 配置未覆盖%s。请在 [Peer] 中设置 AllowedIPs = 0.0.0.0/0, ::/0，并在 [Interface] 中设置隧道 DNS；隧道内 IPv4 仍通过校园 IPv6 外层传输", strings.Join(missing, "和"))
+		fail(http.StatusConflict, "家庭 WireGuard 路由配置不完整", detail, map[string]interface{}{"allowedIPs": allowedIPs})
 		return
 	}
-
-	// Trigger one harmless IPv6 connection through the newly installed default
-	// route. This makes a broken UDP endpoint fail fast instead of presenting a
-	// misleading successful toggle with no WireGuard handshake.
+	if err := verifyHomeTunnelRoutes(ctx, ifName, tunnelName); err != nil {
+		fail(http.StatusConflict, "家庭 WireGuard 的实际路由或 IPv6 免流条件未通过", err.Error(), nil)
+		return
+	}
 	triggerHomeTunnelTraffic(ctx)
 	status := waitForHomeNetworkConnected(ctx, tunnelName)
 	if !status.Connected {
-		stopOut, _ := stopHomeTunnelForRollback(tunnelName)
-		rollbackOut, _ := applyNetworkMode(ifName, "both")
 		if status.Error == "" {
 			status.Error = "在等待时间内没有收到 WireGuard 握手"
 		}
-		result := map[string]interface{}{"error": "家庭 WireGuard 未完成握手，已恢复双栈", "detail": status.Error, "serviceOutput": serviceOut, "stopOutput": stopOut, "rollbackOutput": rollbackOut, "status": status, "rolledBack": true}
-		writeJSON(w, result, http.StatusBadGateway)
-		notify(hub, "home-network.error", "home WireGuard handshake failed", result)
+		fail(http.StatusBadGateway, "家庭 WireGuard 未完成握手", status.Error, map[string]interface{}{"serviceOutput": serviceOut, "status": status})
 		return
 	}
-
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), homeInternetTimeout)
 	internet := probeHomeTunnelInternet(probeCtx, tunnelName)
 	probeCancel()
 	if !internet.OK {
-		stopOut, _ := stopHomeTunnelForRollback(tunnelName)
-		rollbackOut, _ := applyNetworkMode(ifName, "both")
 		detail := fmt.Sprintf("WireGuard 已握手，但隧道内 IPv4 联网验证失败：%s", internet.Error)
-		result := map[string]interface{}{"error": "家庭 WireGuard 已握手但无法联网，已恢复双栈", "detail": detail, "internet": internet, "allowedIPs": allowedIPs, "serviceOutput": serviceOut, "stopOutput": stopOut, "rollbackOutput": rollbackOut, "status": status, "rolledBack": true}
-		writeJSON(w, result, http.StatusBadGateway)
-		notify(hub, "home-network.error", "home WireGuard internet probe failed", result)
+		fail(http.StatusBadGateway, "家庭 WireGuard 已握手但无法联网", detail, map[string]interface{}{"internet": internet, "allowedIPs": allowedIPs, "serviceOutput": serviceOut, "status": status})
 		return
 	}
-
+	// Recheck after connectivity tests; don't label physical IPv4 as free-flow.
+	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), timeoutLong)
+	verifyErr := protectHomeTunnelEndpoints(verifyCtx, routing, tunnelName)
+	if verifyErr == nil {
+		verifyErr = verifyHomeTunnelRoutes(verifyCtx, ifName, tunnelName)
+	}
+	verifyCancel()
+	if verifyErr != nil {
+		fail(http.StatusConflict, "家庭 WireGuard 联网后 IPv6 免流条件发生变化", verifyErr.Error(), nil)
+		return
+	}
 	setFreeFlowRuntimeState("home", ifName)
 	result := map[string]interface{}{"ok": true, "enabled": true, "tunnelName": tunnelName, "warpOutput": warpOut, "stackOutput": stackOut, "serviceOutput": serviceOut, "allowedIPs": allowedIPs, "internet": internet, "status": status}
 	writeJSON(w, result, http.StatusOK)
 	notify(hub, "home-network.ok", "home WireGuard mode enabled", result)
+}
+
+func failHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunnelName string, code int, message, detail string, result map[string]interface{}) {
+	if result == nil {
+		result = make(map[string]interface{})
+	}
+	stopOut, stopErr := stopHomeTunnelForRollback(tunnelName)
+	var rollbackOut string
+	var rollbackErr error
+	// A live tunnel must retain its protected Endpoint routes and host settings.
+	if homeTunnelStopConfirmed(stopErr) {
+		clearFreeFlowRuntimeState("")
+		rollbackOut, rollbackErr = applyNetworkMode(ifName, "both")
+	}
+	rolledBack := stopErr == nil && rollbackErr == nil
+	if rolledBack {
+		message += "，已恢复双栈"
+	} else {
+		message += "；自动恢复未完成"
+		if stopErr != nil {
+			detail += "；停止隧道/恢复物理出口失败：" + stopErr.Error()
+		}
+		if rollbackErr != nil {
+			detail += "；恢复双栈失败：" + rollbackErr.Error()
+		}
+	}
+	result["error"], result["detail"] = message, detail
+	result["stopOutput"], result["rollbackOutput"], result["rolledBack"] = stopOut, rollbackOut, rolledBack
+	writeJSON(w, result, code)
+	notify(hub, "home-network.error", "home WireGuard start failed", result)
 }
 
 func handleHomeNetworkStop(w http.ResponseWriter, hub *events.Hub, ifName, requestedTunnelName string) {
@@ -250,22 +283,29 @@ func handleHomeNetworkStop(w http.ResponseWriter, hub *events.Hub, ifName, reque
 		}
 	}
 
-	stopOut := "没有已配置的家庭 WireGuard 隧道"
-	if tunnelName != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), timeoutMedium)
-		stopOut, err = stopHomeTunnel(ctx, tunnelName)
-		cancel()
-		if err != nil {
-			writeJSON(w, map[string]interface{}{"error": "关闭家庭 WireGuard 隧道失败", "detail": err.Error(), "serviceOutput": stopOut}, http.StatusBadGateway)
-			notify(hub, "home-network.error", "failed to stop home WireGuard tunnel", map[string]string{"detail": err.Error()})
-			return
-		}
-	}
-
 	restoreIfName := strings.TrimSpace(ifName)
 	if runtimeState.Mode == "home" && strings.TrimSpace(runtimeState.Interface) != "" {
 		restoreIfName = strings.TrimSpace(runtimeState.Interface)
 	}
+	if manager, managerErr := newHomeRoutingManager(); managerErr == nil {
+		if saved, loadErr := manager.load(); loadErr == nil && saved != nil && strings.EqualFold(saved.TunnelName, tunnelName) {
+			restoreIfName = saved.InterfaceName
+		}
+	}
+	var cleanupErr error
+	stopOut := "没有已配置的家庭 WireGuard 隧道"
+	if tunnelName != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), homeConnectTimeout)
+		stopOut, err = stopHomeTunnel(ctx, tunnelName)
+		cancel()
+		if err != nil && !homeTunnelStopConfirmed(err) {
+			writeJSON(w, map[string]interface{}{"error": "关闭家庭 WireGuard 隧道失败", "detail": err.Error(), "serviceOutput": stopOut}, http.StatusBadGateway)
+			notify(hub, "home-network.error", "failed to stop home WireGuard tunnel", map[string]string{"detail": err.Error()})
+			return
+		}
+		cleanupErr = err
+	}
+	clearFreeFlowRuntimeState("")
 	stackOut := ""
 	if restoreIfName != "" {
 		stackOut, err = applyNetworkMode(restoreIfName, "both")
@@ -274,7 +314,12 @@ func handleHomeNetworkStop(w http.ResponseWriter, hub *events.Hub, ifName, reque
 			return
 		}
 	}
-	clearFreeFlowRuntimeState("")
+	if cleanupErr != nil {
+		result := map[string]interface{}{"error": "隧道已停止并恢复普通双栈，但物理出口清理未完成；可再次点击关闭重试", "detail": cleanupErr.Error(), "enabled": false, "serviceOutput": stopOut, "stackOutput": stackOut}
+		writeJSON(w, result, http.StatusBadGateway)
+		notify(hub, "home-network.error", "home WireGuard cleanup needs retry", result)
+		return
+	}
 	result := map[string]interface{}{"ok": true, "enabled": false, "tunnelName": tunnelName, "serviceOutput": stopOut, "stackOutput": stackOut}
 	writeJSON(w, result, http.StatusOK)
 	notify(hub, "home-network.ok", "home WireGuard mode disabled", result)
@@ -326,7 +371,7 @@ func stopConfiguredHomeTunnel() (string, error) {
 	if err := validateHomeTunnelName(name); err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutMedium)
+	ctx, cancel := context.WithTimeout(context.Background(), homeConnectTimeout)
 	defer cancel()
 	out, err := stopHomeTunnel(ctx, name)
 	return out, err
@@ -542,7 +587,7 @@ func stopHomeTunnel(ctx context.Context, tunnelName string) (string, error) {
 		return "", err
 	}
 	if !service.Exists || service.State == "stopped" {
-		return "WireGuard 服务已停止", nil
+		return "WireGuard 服务已停止", restoreHomeOuterRouting(ctx, tunnelName)
 	}
 	out, stopErr := execWithTimeout(ctx, "sc.exe", "stop", homeTunnelServiceName(tunnelName))
 	if stopErr != nil {
@@ -558,7 +603,7 @@ func stopHomeTunnel(ctx context.Context, tunnelName string) (string, error) {
 			return out, queryErr
 		}
 		if !current.Exists || current.State == "stopped" {
-			return out, nil
+			return out, restoreHomeOuterRouting(ctx, tunnelName)
 		}
 		select {
 		case <-ctx.Done():
@@ -569,7 +614,7 @@ func stopHomeTunnel(ctx context.Context, tunnelName string) (string, error) {
 }
 
 func stopHomeTunnelForRollback(tunnelName string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutMedium)
+	ctx, cancel := context.WithTimeout(context.Background(), homeConnectTimeout)
 	defer cancel()
 	return stopHomeTunnel(ctx, tunnelName)
 }
@@ -880,7 +925,7 @@ func describeHomeProbeTraffic(sent, received uint64) string {
 	case sent == 0:
 		return "探测流量没有进入 WireGuard，优先检查 Windows 路由、第三方防火墙以及 Clash TUN 是否关闭"
 	case received == 0:
-		return "Windows 已向 WireGuard 发送流量但没有回包，优先在 Ubuntu 检查 wg0 到公网出口的转发链路"
+		return "WireGuard 发送计数增加但没有回包，不能证明数据已离开物理网卡；请结合 Endpoint 外层路由、物理网卡的 Forwarding/WeakHostSend、链路收发和服务端回程继续定位"
 	default:
 		return "WireGuard 双向字节均有增加，但 TCP 建连仍失败，优先检查防火墙、conntrack 或路径 MTU"
 	}

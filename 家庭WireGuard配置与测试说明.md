@@ -197,7 +197,11 @@ Endpoint = [2409:8a20:f54:5a10:608e:637b:b2e:c9e6]:51820
 - Ubuntu 防火墙必须允许 `wg0` 与实际出口网卡之间的 `FORWARD` 流量。
 - Ubuntu 必须对 `10.66.66.0/24` 配置 IPv4 NAT/MASQUERADE；IPv6 则需要 NAT66 或可路由回客户端的前缀。
 
-新版 BKNetwork 会在握手后检查双栈默认路由，并从 WireGuard 的 IPv4 地址实际连接公网和测试 Windows DNS。任一步失败都会停止隧道并恢复双栈，不再把“握手成功”误报为“可以上网”。
+新版 BKNetwork 会在连接前关闭所选物理网卡 IPv6 的 `Forwarding/WeakHostSend`，连接后为 IPv6 Endpoint 添加经物理 IPv6 网关的 `/128` 临时路由，阻止外层 UDP 被全隧道路由再次捕获。随后检查实际双栈隧道路由，并从 WireGuard 的 IPv4 地址连接公网、测试 Windows DNS。连接成功前会再次检查物理网卡仅启用 IPv6，保留校园 IPv6 免流：内层 IPv4 流量继续封装在 IPv6 外层中。
+
+这些保护在 BKNetwork 的家庭网络开关中运行，不会读取或更改 WireGuard 私钥、服务端配置或客户端 `AllowedIPs`。断开及失败恢复时，会先停止隧道，再仅清理本次新增路由并恢复原转发选项；恢复记录位于 `%APPDATA%\BKNetwork\home-routing.json`，支持程序重启后继续恢复。
+
+如果日志出现 `Forwarding/WeakHostSend enabled, which will cause routing loops`，先核对本机外层路由与该物理网卡选项。WireGuard 发送计数并不能证明物理网卡已发出对应数据，也不足以判定 Ubuntu 转发/NAT 错误。
 
 ### 家庭网络重连后失效
 

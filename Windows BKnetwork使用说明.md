@@ -30,8 +30,11 @@
    ```
 
    IPv6 Endpoint 必须用方括号。物理网卡只保留 IPv6 是为了保证外层链路不走校园 IPv4；`0.0.0.0/0` 则把 Windows 的内层 IPv4 流量封装进 WireGuard，二者并不冲突。还应在 `[Interface]` 中配置隧道 DNS，例如 `DNS = 1.1.1.1, 2606:4700:4700::1111`。
-3. 以管理员身份运行 BKNetwork，在“家庭网络 WireGuard”卡片选择刚导入的隧道并开启。程序会先断开 WARP、把目标物理网卡切为仅 IPv6、启动 WireGuard，随后依次验证握手、双栈默认路由、隧道 IPv4 公网连接和 Windows DNS。
-4. 如果任一步失败，BKNetwork 会停止该隧道并自动恢复物理网卡的 IPv4/IPv6 双栈；错误信息会区分客户端路由、DNS 与 Ubuntu 转发/NAT 问题。
+3. 以管理员身份运行 BKNetwork，在“家庭网络 WireGuard”卡片选择刚导入的隧道并开启。程序会先断开 WARP、把目标物理网卡切为仅 IPv6，并临时关闭该网卡 IPv6 的 `Forwarding` 与 `WeakHostSend`，避免外层报文回环。WireGuard 启动后，程序读取其公开的 IPv6 Endpoint，为端点添加经所选物理 IPv6 网关的 `/128` 临时路由，验证实际出口、双栈隧道路由、握手、隧道 IPv4 公网连接和 Windows DNS。
+4. 联网后还会复核物理 IPv4 保持关闭、端点继续走物理 IPv6、业务流量经过隧道，全部通过才显示成功。内层 IPv4 网站访问仍封装在 IPv6 外层中，保留校园 IPv6 免流；配置为 IPv4 Endpoint 会被拒绝。
+5. 断开或启动失败时，程序先停止隧道，再移除本次新增的端点路由、恢复原 IPv6 转发选项和普通双栈。恢复记录保存在 `%APPDATA%\BKNetwork\home-routing.json`，不含密钥；遇到恢复失败会保留记录并提示重试关闭。发送计数增加但没有回包时，程序会提示核对本机外层路由、传输链路和服务端回程，避免直接认定 Ubuntu 配置错误。
+
+以上保护需要使用 BKNetwork 的家庭网络开关。直接在官方 WireGuard 中连接不会经过 BKNetwork 的启动检查与修复流程。
 
 > 使用家庭网络时不要同时开启 WARP 免流模式；BKNetwork 会在切换时自动关闭另一方。Clash Verge 的系统代理模式可以继续使用，`127.0.0.1` 回环连接不受影响；不要同时开启 Clash TUN。
 

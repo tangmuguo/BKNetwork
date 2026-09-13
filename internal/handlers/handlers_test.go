@@ -471,7 +471,7 @@ func TestHomeTunnelIPv4ProbeDiagnostics(t *testing.T) {
 		want           string
 	}{
 		{sent: 0, received: 0, want: "Windows"},
-		{sent: 128, received: 0, want: "Ubuntu"},
+		{sent: 128, received: 0, want: "不能证明数据已离开物理网卡"},
 		{sent: 128, received: 64, want: "TCP"},
 	} {
 		if got := describeHomeProbeTraffic(tc.sent, tc.received); !strings.Contains(got, tc.want) {

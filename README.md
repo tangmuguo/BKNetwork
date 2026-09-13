@@ -19,7 +19,11 @@ BKNetwork 是一个轻量级本地服务，带有内置 Web 管理界面，用�
 
 如果家里的 Ubuntu 服务器提供可访问的公网 IPv6，且 UDP `51820` 已放行，可以用家庭 WireGuard 替代 Cloudflare WARP。先在 **官方 WireGuard for Windows** 导入客户端配置，在 BKNetwork 页面选择该隧道即可；程序不会读取或保存 WireGuard 私钥。客户端应使用 `Endpoint = [家庭公网IPv6]:51820`、`AllowedIPs = 0.0.0.0/0, ::/0`、隧道内 `DNS` 和 `PersistentKeepalive = 25`。Ubuntu 还需要正确配置 IPv4/IPv6 转发，以及 IPv4 NAT 和 NAT66/回程路由；只有开放 UDP 端口并不足够。
 
-BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关闭 WARP 并切换物理网卡为仅 IPv6。程序不会再把握手等同于联网；它会校验 WireGuard 双栈默认路由，并从隧道 IPv4 地址实际测试公网与 Windows DNS，失败时停止隧道并恢复双栈。
+BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关闭 WARP 并切换所选物理网卡为仅 IPv6。隧道内部仍保留 IPv4/IPv6 双栈，访问 IPv4 网站时也经 IPv6 外层传输，保留校园 IPv6 不计费的使用方式。
+
+为避免 Windows 的 `Forwarding/WeakHostSend` 导致外层报文重新进入隧道，程序会在启动前临时关闭所选物理网卡的这两个 IPv6 选项，启动后为每个 IPv6 Endpoint 添加经该物理 IPv6 网关的 `/128` 临时路由，并核对实际出口。只接受 IPv6 Endpoint；不会通过启用物理 IPv4 来修复连接。程序还会校验实际安装的双栈隧道路由、物理网卡保持仅 IPv6，并从隧道 IPv4 地址测试公网和 Windows DNS。未满足这些条件时不会报告免流成功。
+
+断开、切换 WARP 或启动失败时，程序会先确认隧道停止，再删除本次添加的端点路由并恢复原 IPv6 转发选项。原状态保存在 `%APPDATA%\BKNetwork\home-routing.json`（不含密钥），支持程序重启后的恢复；已有路由和其他网卡不受这些修复操作影响。若隧道已经停止但端点清理失败，仍会恢复普通双栈，并保留记录、提示再次关闭重试，不会误报为完全恢复。这些保护在 **BKNetwork 的家庭网络开关** 中执行，单独点击官方 WireGuard 的连接按钮不会执行此流程。
 
 ## Q&A
 
@@ -43,7 +47,7 @@ BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关�
    * 关闭浏览器不会关闭后台或 WARP。重新从托盘打开页面后，页面会根据 Cloudflare 实际状态和物理网卡恢复 WARP 开关
    * 与 Clash Verge 共存时必须关闭 Clash TUN；否则 Mihomo 虚拟网卡可能被 Cloudflare 识别为外层网卡，WARP 免流校验会主动拒绝连接
 
-   * 免流模式不能访问仅支持ipv4的网站（例如校园网登录页），但是放心，2026年了，仅支持ipv4的网站较少
+   * 单独使用“仅 IPv6”模式且未连接隧道时，无法访问仅支持 IPv4 的网站。WARP/家庭 WireGuard 成功建立隧道后，可以把内层 IPv4 流量封装在 IPv6 外层中；校园认证页面如需 IPv4，可先用普通双栈完成登录。
 
    * 实时流量监控，推荐 [Sniffnet](https://sniffnet.net/)
 
