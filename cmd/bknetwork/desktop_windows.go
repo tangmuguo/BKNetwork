@@ -208,6 +208,8 @@ func runDesktopApp() error {
 		})
 	}
 
+	defer shutdownServer()
+
 	tray := &trayController{
 		iconPath:   trayIcon,
 		browserURL: "http://" + server.DefaultAddr + "/?v=" + appinfo.Version,

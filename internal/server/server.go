@@ -136,6 +136,10 @@ func (s *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("http listen error: %w", err)
 	}
+	compatCtx, compatCancel := context.WithCancel(ctx)
+	s.httpServer.RegisterOnShutdown(compatCancel)
+	defer compatCancel()
+	go handlers.RunQuotaFloatCompatibility(compatCtx, s.hub)
 	s.readyOnce.Do(func() { close(s.ready) })
 
 	lnErr := make(chan error, 1)

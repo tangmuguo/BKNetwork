@@ -1,18 +1,26 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bknetwork/internal/appinfo"
 	"bknetwork/internal/events"
+	"bknetwork/internal/quotafloat"
 	appsettings "bknetwork/internal/settings"
 )
+
+var quotaFloatRouting = quotafloat.NewManager()
+var chatGPTProxyMu sync.Mutex
+var chatGPTProxyStopping bool
 
 const (
 	chatGPTProxyPACURL       = "http://127.0.0.1:13335/api/v1/chatgpt-proxy.pac?v=" + appinfo.Version
@@ -46,12 +54,13 @@ var chatGPTProxyDomains = []string{
 }
 
 type chatGPTProxySnapshot struct {
-	Enabled      bool   `json:"enabled"`
-	Active       bool   `json:"active"`
-	ProxyAddress string `json:"proxyAddress"`
-	PACURL       string `json:"pacURL"`
-	ProxyOnline  bool   `json:"proxyOnline"`
-	Detail       string `json:"detail,omitempty"`
+	Enabled      bool                `json:"enabled"`
+	Active       bool                `json:"active"`
+	ProxyAddress string              `json:"proxyAddress"`
+	PACURL       string              `json:"pacURL"`
+	ProxyOnline  bool                `json:"proxyOnline"`
+	Detail       string              `json:"detail,omitempty"`
+	QuotaFloat   quotafloat.Snapshot `json:"quotaFloat"`
 }
 
 func ChatGPTProxyPACHandler() http.HandlerFunc {
@@ -113,14 +122,10 @@ func ChatGPTProxyHandler(hub *events.Hub) http.HandlerFunc {
 				}
 			}
 
-			if err := configureChatGPTProxy(payload.Enabled, address); err != nil {
+			snapshot, err := applyChatGPTProxyConfiguration(payload.Enabled, address)
+			if err != nil {
 				writeJSON(w, map[string]string{"error": "更新 ChatGPT 分流失败", "detail": err.Error()}, http.StatusInternalServerError)
 				notify(hub, "chatgpt-proxy.error", err.Error(), payload)
-				return
-			}
-			snapshot, err := collectChatGPTProxySnapshot()
-			if err != nil {
-				writeJSON(w, map[string]string{"error": err.Error()}, http.StatusInternalServerError)
 				return
 			}
 			writeJSON(w, map[string]any{"ok": true, "state": snapshot}, http.StatusOK)
@@ -193,6 +198,24 @@ func isBKNetworkPAC(state appsettings.SystemProxyPACState) bool {
 }
 
 func configureChatGPTProxy(enabled bool, address string) error {
+	chatGPTProxyMu.Lock()
+	defer chatGPTProxyMu.Unlock()
+	return configureChatGPTProxyLocked(enabled, address)
+}
+
+func applyChatGPTProxyConfiguration(enabled bool, address string) (chatGPTProxySnapshot, error) {
+	chatGPTProxyMu.Lock()
+	defer chatGPTProxyMu.Unlock()
+	if err := configureChatGPTProxyLocked(enabled, address); err != nil {
+		return chatGPTProxySnapshot{}, err
+	}
+	return collectChatGPTProxySnapshotLocked()
+}
+
+func configureChatGPTProxyLocked(enabled bool, address string) error {
+	if chatGPTProxyStopping {
+		return errors.New("BKNetwork 正在退出，无法再次启用分流")
+	}
 	cfg, err := appsettings.Load()
 	if err != nil {
 		return err
@@ -236,10 +259,23 @@ func configureChatGPTProxy(enabled bool, address string) error {
 		_ = appsettings.Save(originalCfg)
 		return err
 	}
+	// Quota Float caches its proxy at native HTTP client startup and does not
+	// evaluate PAC. Report its failures separately from working ChatGPT routing.
+	if enabled {
+		_ = quotaFloatRouting.Configure(true, address)
+	} else {
+		_ = quotaFloatRouting.Restore()
+	}
 	return nil
 }
 
 func collectChatGPTProxySnapshot() (chatGPTProxySnapshot, error) {
+	chatGPTProxyMu.Lock()
+	defer chatGPTProxyMu.Unlock()
+	return collectChatGPTProxySnapshotLocked()
+}
+
+func collectChatGPTProxySnapshotLocked() (chatGPTProxySnapshot, error) {
 	cfg, err := appsettings.Load()
 	if err != nil {
 		return chatGPTProxySnapshot{}, err
@@ -257,6 +293,7 @@ func collectChatGPTProxySnapshot() (chatGPTProxySnapshot, error) {
 		Active:       cfg.ChatGPTClashEnabled && isBKNetworkPAC(currentPAC),
 		ProxyAddress: address,
 		PACURL:       chatGPTProxyPACURL,
+		QuotaFloat:   quotaFloatRouting.Snapshot(),
 	}
 	if checkErr := checkLocalProxy(address, 250*time.Millisecond); checkErr == nil {
 		snapshot.ProxyOnline = true
@@ -276,30 +313,48 @@ func collectChatGPTProxySnapshot() (chatGPTProxySnapshot, error) {
 // deliberately does not require Clash to be ready yet because the two apps may
 // start concurrently during Windows login.
 func ActivateConfiguredChatGPTProxy() error {
+	chatGPTProxyMu.Lock()
+	defer chatGPTProxyMu.Unlock()
+	if chatGPTProxyStopping {
+		return nil
+	}
 	cfg, err := appsettings.Load()
-	if err != nil || !cfg.ChatGPTClashEnabled {
+	if err != nil {
 		return err
+	}
+	if !cfg.ChatGPTClashEnabled {
+		return quotaFloatRouting.Configure(false, "")
 	}
 	address, err := normalizeClashProxyAddress(cfg.ClashProxyAddress)
 	if err != nil {
 		return err
 	}
-	return configureChatGPTProxy(true, address)
+	return configureChatGPTProxyLocked(true, address)
 }
 
 // SuspendConfiguredChatGPTProxy restores the user's prior PAC on a graceful
 // exit while keeping the feature enabled in BKNetwork for the next launch.
 func SuspendConfiguredChatGPTProxy() error {
+	chatGPTProxyMu.Lock()
+	defer chatGPTProxyMu.Unlock()
+	chatGPTProxyStopping = true
+	quotaErr := quotaFloatRouting.Restore()
 	cfg, err := appsettings.Load()
 	if err != nil || !cfg.ChatGPTClashEnabled {
-		return err
+		return errors.Join(err, quotaErr)
 	}
 	currentPAC, err := appsettings.ReadSystemProxyPAC()
 	if err != nil || !isBKNetworkPAC(currentPAC) {
-		return err
+		return errors.Join(err, quotaErr)
 	}
-	return appsettings.WriteSystemProxyPAC(appsettings.SystemProxyPACState{
+	return errors.Join(quotaErr, appsettings.WriteSystemProxyPAC(appsettings.SystemProxyPACState{
 		URL:     cfg.ChatGPTClashPreviousPACURL,
 		Present: cfg.ChatGPTClashPreviousPACURLPresent,
+	}))
+}
+
+func RunQuotaFloatCompatibility(ctx context.Context, hub *events.Hub) {
+	quotaFloatRouting.Run(ctx, func(snapshot quotafloat.Snapshot) {
+		notify(hub, "quota-float.status", snapshot.Detail, snapshot)
 	})
 }

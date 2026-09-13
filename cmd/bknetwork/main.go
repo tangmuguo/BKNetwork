@@ -158,7 +158,9 @@ func (p *program) Start(s service.Service) error {
 	// Start should not block. Start the server in a goroutine.
 	ctx := context.Background()
 	p.httpSrv = server.NewServer("")
+	serverDone := make(chan struct{})
 	go func() {
+		defer close(serverDone)
 		if err := p.httpSrv.Start(ctx); err != nil {
 			if logger != nil {
 				logger.Error(err)
@@ -168,7 +170,11 @@ func (p *program) Start(s service.Service) error {
 		}
 	}()
 	go func() {
-		time.Sleep(250 * time.Millisecond)
+		select {
+		case <-p.httpSrv.Ready():
+		case <-serverDone:
+			return
+		}
 		if err := handlers.ActivateConfiguredChatGPTProxy(); err != nil {
 			if logger != nil {
 				logger.Warning(err)
@@ -193,8 +199,6 @@ func (p *program) Start(s service.Service) error {
 
 func (p *program) Stop(s service.Service) error {
 	// Stop should stop the server gracefully.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	if err := handlers.SuspendConfiguredChatGPTProxy(); err != nil {
 		if logger != nil {
 			logger.Warning(err)
@@ -202,6 +206,9 @@ func (p *program) Stop(s service.Service) error {
 			log.Printf("ChatGPT Clash routing restore failed: %v", err)
 		}
 	}
+	// The HTTP drain budget starts after the separate process restoration.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if p.httpSrv != nil {
 		_ = p.httpSrv.Shutdown(ctx)
 	}

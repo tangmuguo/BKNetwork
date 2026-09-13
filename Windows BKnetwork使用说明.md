@@ -56,14 +56,15 @@
 * 先开启 WARP 免流模式或家庭 WireGuard，并等待 BKNetwork 确认联网成功
 * 在 `ChatGPT → Clash Verge 分流` 中填写 Clash 的 `127.0.0.1:端口`
 * 开启分流，看到“ChatGPT → 端口；其他 → 当前网络（WARP/家庭 WireGuard）”后，完全退出并重开 `ChatGPT classic` 和 `ChatGPT`
+* 同时运行 quota-float 时，BKNetwork 会自动为它单独设置 Clash 代理并重启一次；稍后启动的额度工具也会自动适配，原卡片会显示等待、已适配或失败原因，不需要新按钮。BKNetwork 以管理员权限运行时，额度工具仍保持原来的普通权限。请保留 Clash 运行并关闭 TUN。
 
-PS：此模式使用系统 PAC，只把 OpenAI/ChatGPT 必要的 HTTP、HTTPS、WebSocket 域名交给 Clash。其他系统代理流量为 DIRECT，仍由当前的 WARP 或家庭 WireGuard 承载。Clash 直连模式不会产生日区出口，因此不适合此用法。Voice 的原生 UDP 不受系统 PAC 控制，可能通过当前隧道或回退到 TCP 443。
+PS：此模式使用系统 PAC，只把 OpenAI/ChatGPT 必要的 HTTP、HTTPS、WebSocket 域名交给 Clash。其他系统代理流量为 DIRECT，仍由当前的 WARP 或家庭 WireGuard 承载。Clash 直连模式不会产生日区出口，因此不适合此用法。Voice 的原生 UDP 不受系统 PAC 控制，可能通过当前隧道或回退到 TCP 443。quota-float 不支持 PAC 且缓存启动时的代理，因此它使用独立的进程代理环境，自己的 HTTP/HTTPS 请求经过 Clash；系统环境变量和登录文件不变。它把 HTTP 403 也标为“登录失效”，此提示不一定意味着凭据失效。
 
 ## 关闭说明
 
 * 完全退出 ChatGPT Classic 和 ChatGPT。
 
-* 在 BKNetwork 页面关闭“ChatGPT → Clash Verge 分流”，等待 PAC 恢复。
+* 在 BKNetwork 页面关闭“ChatGPT → Clash Verge 分流”，等待 PAC 恢复；已适配且仍在运行的 quota-float 会重开一次，恢复 Windows 用户默认环境。正常从 BKNetwork 托盘退出也会执行恢复。
 
 * 在 BKNetwork 页面关闭“Warp 免流模式”。
 

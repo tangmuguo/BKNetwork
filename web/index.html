@@ -137,7 +137,7 @@
           </div>
           <div class="hero-copy">
             <h1>北科校园网助手</h1>
-            <p class="lead">v2.0.0</p>
+            <p class="lead">v2.0.1</p>
             <div class="badge ipv6-check-badge" id="ipv6CheckBadge">
               <span id="ipv6CheckDot" class="dot warn"></span>
               <span id="ipv6CheckText" class="ipv6-check-text">正在检测 IPv6 地址...</span>
@@ -221,7 +221,7 @@
         <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-route"/></svg></span>
         <div class="clash-split-copy">
           <div class="easy-mode-title">ChatGPT → Clash Verge 分流</div>
-          <div class="easy-mode-desc">仅将 ChatGPT/OpenAI 必要域名交给 Clash；其余流量直连并继续由 WARP 或家庭 WireGuard 承载。建议 Clash 使用系统代理、全局模式并选择日区节点，关闭 TUN。</div>
+          <div class="easy-mode-desc">仅将 ChatGPT/OpenAI 必要域名交给 Clash；其余流量直连并继续由 WARP 或家庭 WireGuard 承载。同时自动检测并重启 quota-float，使额度请求走 Clash。建议 Clash 使用系统代理、全局模式并选择日区节点，关闭 TUN。</div>
           <div class="clash-address-row">
             <label for="clashProxyAddress">Clash HTTP/mixed 地址</label>
             <input id="clashProxyAddress" class="clash-proxy-input" type="text" value="127.0.0.1:7897" autocomplete="off" spellcheck="false" inputmode="text" />

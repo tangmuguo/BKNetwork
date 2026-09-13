@@ -25,6 +25,14 @@ BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关�
 
 断开、切换 WARP 或启动失败时，程序会先确认隧道停止，再删除本次添加的端点路由并恢复原 IPv6 转发选项。原状态保存在 `%APPDATA%\BKNetwork\home-routing.json`（不含密钥），支持程序重启后的恢复；已有路由和其他网卡不受这些修复操作影响。若隧道已经停止但端点清理失败，仍会恢复普通双栈，并保留记录、提示再次关闭重试，不会误报为完全恢复。这些保护在 **BKNetwork 的家庭网络开关** 中执行，单独点击官方 WireGuard 的连接按钮不会执行此流程。
 
+## 与 quota-float 共用
+
+从 v2.0.1 起，继续使用现有的 **ChatGPT → Clash Verge 分流** 开关和 Clash HTTP/mixed 地址，无需增加按钮或修改 quota-float。开启分流、启动 BKNetwork 或修改代理端口时，程序会为当前 Windows 用户、当前会话中正在运行的 `quota-float.exe` 单独设置 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`，并重启一次，使额度请求使用同一个 Clash 出口。稍后才启动 quota-float 也会在约 3 秒内被检测和适配；用户主动退出额度工具后不会被自动打开。
+
+这是因为 quota-float 的原生 HTTP 客户端只在启动时读取代理，不执行 ChatGPT 客户端使用的 PAC，而且把 HTTP 403 也显示为“登录失效”。适配只改变 quota-float 子进程的 HTTP/HTTPS 代理环境；其他应用继续遵循现有 PAC 分流，系统环境变量、quota-float 源码和 Codex 登录文件均不修改。额度工具会短暂重开，新实例通过 Windows 父进程属性继承原 quota-float 的权限，支持管理员 BKNetwork 与普通权限 quota-float 同时运行；原用户身份和权限保持不变。新实例无法准备成功时保留原实例，并在原卡片中显示失败原因。
+
+关闭分流或从托盘正常退出 BKNetwork，会重新启动本次已适配且仍在运行的 quota-float，恢复该 Windows 用户的默认环境。恢复失败会重试一次；若仍失败，保留原实例并在卡片或日志提示完全退出、重新打开 quota-float，避免误报恢复成功。环境来自原用户的 Windows 环境配置；若需要自定义 `CODEX_HOME`，应配置为用户环境变量，而不是仅在某个启动终端中临时设置。适配用于交互式桌面会话，Windows 服务不会跨会话接管其他用户的额度工具。若代理适配成功后仍显示未登录，应再检查 Codex 自身登录状态；BKNetwork 不刷新或替换登录令牌。
+
 ## Q&A
 
 1. 免流模式真的能实现免流吗？
@@ -77,7 +85,7 @@ cd BKNetwork
 
 或右键使用 powershell 运行。
 
-`release/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
+`releases/bknetwork-v2.0.1/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
 
 在非 Windows 平台上交叉编译 Windows x64 二进制文件：
 
@@ -102,7 +110,7 @@ GOOS=windows GOARCH=amd64 go build -o bknetwork.exe ./cmd/bknetwork
 
 - 静态 Web UI：根路径（`/`）会提供 `web` 目录下的文件。
 - REST 状态接口：`/api/v1/status` — 返回最近一次网络快照与服务状态。
-- 控制接口：`/api/v1/switch`（切换 IPv4/IPv6）、`/api/v1/warp`（控制 warp-cli）、`/api/v1/home-network`（控制官方客户端已导入的家庭 WireGuard 隧道）、`/api/v1/chatgpt-proxy`（配置 ChatGPT → Clash PAC 分流）。
+- 控制接口：`/api/v1/switch`（切换 IPv4/IPv6）、`/api/v1/warp`（控制 warp-cli）、`/api/v1/home-network`（控制官方客户端已导入的家庭 WireGuard 隧道）、`/api/v1/chatgpt-proxy`（配置 ChatGPT → Clash PAC 分流，并同步 quota-float 子进程代理）。
 - PAC：`/api/v1/chatgpt-proxy.pac` — 仅供本机 Windows 系统代理读取。
 - 实时事件：WebSocket 路径为 `/ws`，会发送 `hello`、`network.status`、`heartbeat` 等事件。
 
@@ -127,6 +135,7 @@ go test ./...
 
 - `cmd/bknetwork` — 程序入口与平台相关的包装代码（服务安装、桌面集成等）
 - `internal/handlers` — HTTP 处理器，包含网络快照采集、warp 控制等逻辑
+- `internal/quotafloat` — quota-float 的进程检测、代理环境隔离和重启恢复
 - `internal/events` — 事件总线，用于将事件广播到 WebSocket 订阅者
 - `web/` — 前端静态资源
 

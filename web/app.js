@@ -93,6 +93,7 @@ const chatGPTClashState = {
   active: false,
   proxyAddress: '127.0.0.1:7897',
   proxyOnline: false,
+  quotaFloat: { status: 'disabled', detail: '' },
   detail: '',
   pending: false,
 };
@@ -515,18 +516,20 @@ function syncChatGPTClashControls() {
     return;
   }
   if (!chatGPTClashState.enabled) {
-    setText(chatGPTClashStateEl, '当前关闭');
+    setText(chatGPTClashStateEl, chatGPTClashState.quotaFloat?.status === 'error' ? `当前关闭；${chatGPTClashState.quotaFloat.detail}` : '当前关闭');
     return;
   }
+  const quotaDetail = chatGPTClashState.quotaFloat?.detail;
+  const withQuotaDetail = (detail) => quotaDetail ? `${detail}；${quotaDetail}` : detail;
   if (!chatGPTClashState.active) {
-    setText(chatGPTClashStateEl, chatGPTClashState.detail || '已保存，但 Windows PAC 当前未生效');
+    setText(chatGPTClashStateEl, withQuotaDetail(chatGPTClashState.detail || '已保存，但 Windows PAC 当前未生效'));
     return;
   }
   if (!chatGPTClashState.proxyOnline) {
-    setText(chatGPTClashStateEl, chatGPTClashState.detail || '分流已生效，但 Clash 本地端口不可用');
+    setText(chatGPTClashStateEl, withQuotaDetail(chatGPTClashState.detail || '分流已生效，但 Clash 本地端口不可用'));
     return;
   }
-  setText(chatGPTClashStateEl, `当前开启：ChatGPT → ${chatGPTClashState.proxyAddress}；其他 → 当前网络（WARP/家庭 WireGuard）`);
+  setText(chatGPTClashStateEl, withQuotaDetail(`当前开启：ChatGPT → ${chatGPTClashState.proxyAddress}；其他 → 当前网络（WARP/家庭 WireGuard）`));
 }
 
 function updateChatGPTClashState(snapshot) {
@@ -535,6 +538,7 @@ function updateChatGPTClashState(snapshot) {
   chatGPTClashState.proxyAddress = snapshot?.proxyAddress || chatGPTClashState.proxyAddress;
   chatGPTClashState.proxyOnline = !!snapshot?.proxyOnline;
   chatGPTClashState.detail = snapshot?.detail || '';
+  chatGPTClashState.quotaFloat = snapshot?.quotaFloat || { status: 'disabled', detail: '' };
   syncChatGPTClashControls();
 }
 
@@ -557,7 +561,7 @@ async function applyChatGPTClash(enabled) {
   chatGPTClashState.pending = true;
   chatGPTClashState.enabled = !!enabled;
   syncChatGPTClashControls();
-  showConfigurationToast('ChatGPT → Clash 分流', enabled ? '正在检查 Clash 端口并写入系统代理 PAC' : '正在恢复原系统代理 PAC');
+  showConfigurationToast('ChatGPT → Clash 分流', enabled ? '正在配置 ChatGPT 分流并适配 quota-float' : '正在恢复系统代理和 quota-float 运行环境');
 
   try {
     const res = await fetch('/api/v1/chatgpt-proxy', {
@@ -577,7 +581,12 @@ async function applyChatGPTClash(enabled) {
     chatGPTClashState.pending = false;
     updateChatGPTClashState(data.state);
     appendLog(`ChatGPT Clash 分流已${enabled ? '开启' : '关闭'}`);
-    showOperationToast('配置成功！', enabled ? '请完全退出并重开两个 ChatGPT 客户端，使其重新读取系统代理' : '已恢复启用前的 PAC 设置', 'success', 3600);
+    if (chatGPTClashState.quotaFloat.status === 'error') {
+      appendLog(chatGPTClashState.quotaFloat.detail);
+      showConfigurationFailure(`ChatGPT 分流已${enabled ? '开启' : '关闭'}；${chatGPTClashState.quotaFloat.detail}`);
+    } else {
+      showOperationToast('配置成功！', enabled ? 'quota-float 将自动适配；ChatGPT 客户端请完全退出后重开' : '已恢复启用前的 PAC 和 quota-float 用户默认环境', 'success', 4200);
+    }
   } catch (err) {
     Object.assign(chatGPTClashState, previous, { pending: false });
     syncChatGPTClashControls();
@@ -1814,6 +1823,11 @@ function connectWS() {
           setText(easyModeStateEl, '当前关闭');
           showConfigurationSuccess();
         }
+        return;
+      }
+      if (data.type === 'quota-float.status') {
+        chatGPTClashState.quotaFloat = data.data || { status: 'disabled', detail: '' };
+        syncChatGPTClashControls();
         return;
       }
       if (data.type === 'heartbeat') {
