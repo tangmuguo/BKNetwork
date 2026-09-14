@@ -1,15 +1,4 @@
-bknetwork.exe
-bknetwork.exe~
+/bknetwork
 /releases/
-/scripts/check_browser_parent.ps1
-mimo.exe
-/.mimocode/
 /.cache/
 *.log
-
-# Android client
-/android/**/.gradle/
-/android/**/local.properties
-/android/**/build/
-/android/**/*.jks
-/android/**/*.keystore

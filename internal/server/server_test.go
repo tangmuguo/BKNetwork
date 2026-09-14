@@ -5,8 +5,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,20 +13,17 @@ import (
 )
 
 func TestStaticFilesDisableBrowserCache(t *testing.T) {
-	webDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("new-ui-version"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	handler, _ := platformWebHandler()
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	noStoreFileServer(webDir).ServeHTTP(recorder, request)
+	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("static response status = %d; want 200", recorder.Code)
 	}
 	if got := recorder.Header().Get("Cache-Control"); got != "no-store, max-age=0" {
 		t.Fatalf("Cache-Control = %q", got)
 	}
-	if !strings.Contains(recorder.Body.String(), "new-ui-version") {
+	if !strings.Contains(recorder.Body.String(), "BKNetwork") {
 		t.Fatalf("unexpected static response: %q", recorder.Body.String())
 	}
 }

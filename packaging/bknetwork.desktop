@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=BKNetwork
+Name[zh_CN]=BKNetwork 校园网 IPv6
+Comment=Ubuntu 26.04 本机 IPv6 网络控制台
+Comment[zh_CN]=Ubuntu 26.04 本机 IPv6 网络控制台
+Exec=/usr/local/bin/bknetwork-launch
+TryExec=/usr/local/bin/bknetwork-launch
+Icon=bknetwork
+Terminal=false
+StartupNotify=true
+Categories=Network;
+Keywords=IPv6;WARP;WireGuard;校园网;
+Actions=stop;
+
+[Desktop Action stop]
+Name=关闭 BKNetwork 全部
+Name[zh_CN]=关闭 BKNetwork 全部
+Exec=/usr/local/bin/bknetwork-stop

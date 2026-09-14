@@ -2,368 +2,170 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>BKNetwork</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#07152e" />
+  <meta name="description" content="BKNetwork Ubuntu 本机校园网 IPv6 连接控制台" />
+  <title>BKNetwork · Ubuntu 26.04</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="styles.css?v=8" />
-  <link rel="stylesheet" href="blue-theme.css?v=2" />
+  <link rel="stylesheet" href="styles.css?v=10" />
 </head>
 <body>
+  <a class="skip-link" href="#mainContent">跳到主要内容</a>
+
   <svg class="icon-sprite" aria-hidden="true">
-    <symbol id="icon-brand" viewBox="0 0 24 24">
-      <path d="M4.8 9.5a10.5 10.5 0 0 1 14.4 0M7.7 12.5a6.3 6.3 0 0 1 8.6 0M10.5 15.4a2.3 2.3 0 0 1 3 0"/>
-      <path d="M17 13.5v5l2.5 1.6 2.5-1.6v-5L19.5 12 17 13.5Z"/>
-      <path d="m18.5 16 1 1 1.7-2"/>
+    <symbol id="icon-mark" viewBox="0 0 32 32">
+      <path d="M6.5 13.25a13.5 13.5 0 0 1 19 0M10.2 17.2a8.35 8.35 0 0 1 11.6 0M14.25 21.2a2.45 2.45 0 0 1 3.5 0" />
+      <path d="M23.3 17.2v7.15l3.25 2.05 3.25-2.05V17.2l-3.25-2.05-3.25 2.05Z" />
+      <path d="m25.25 20.8 1.2 1.2 2.1-2.45" />
     </symbol>
-    <symbol id="icon-login" viewBox="0 0 24 24">
-      <path d="M13 5V3H5v18h8v-2M10 12h11m-4-4 4 4-4 4"/>
-    </symbol>
-    <symbol id="icon-campus" viewBox="0 0 24 24">
-      <path d="m3 9 9-5 9 5M5 10v8m4-8v8m6-8v8m4-8v8M3 20h18"/>
-    </symbol>
-    <symbol id="icon-traffic" viewBox="0 0 24 24">
-      <path d="M5 20V10h3v10M11 20V4h3v16M17 20v-7h3v7"/>
-    </symbol>
-    <symbol id="icon-clock" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
-    </symbol>
-    <symbol id="icon-warp" viewBox="0 0 24 24">
-      <path d="m21 4-8.2 16-2.6-6.2L4 11.2 21 4Z"/><path d="m10.2 13.8 4.2-4.1"/>
+    <symbol id="icon-grid" viewBox="0 0 24 24">
+      <rect x="4" y="4" width="6" height="6" rx="1.2" /><rect x="14" y="4" width="6" height="6" rx="1.2" />
+      <rect x="4" y="14" width="6" height="6" rx="1.2" /><rect x="14" y="14" width="6" height="6" rx="1.2" />
     </symbol>
     <symbol id="icon-route" viewBox="0 0 24 24">
-      <circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h3c4 0 4-6 7-6M10 12c4 0 4 6 7 6"/>
+      <circle cx="5" cy="12" r="2.2" /><circle cx="19" cy="6" r="2.2" /><circle cx="19" cy="18" r="2.2" />
+      <path d="M7.2 12h2.6c4.6 0 4.6-6 7-6M9.8 12c4.6 0 4.6 6 7 6" />
     </symbol>
-    <symbol id="icon-download" viewBox="0 0 24 24">
-      <path d="M12 3v12m-4-4 4 4 4-4M5 20h14"/>
+    <symbol id="icon-sliders" viewBox="0 0 24 24">
+      <path d="M4 6h8M16 6h4M4 12h3M11 12h9M4 18h8M16 18h4" />
+      <circle cx="14" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="14" cy="18" r="2" />
     </symbol>
-    <symbol id="icon-community" viewBox="0 0 24 24">
-      <circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2"/><path d="M3 20c0-4 2.5-6 6-6s6 2 6 6M15 15c3 0 5 1.7 5 5"/>
+    <symbol id="icon-github" viewBox="0 0 24 24">
+      <path d="M12 3.2a9 9 0 0 0-2.85 17.54c.45.08.62-.2.62-.44v-1.7c-2.52.55-3.05-1.07-3.05-1.07-.41-1.05-1-1.33-1-1.33-.82-.56.06-.55.06-.55.91.07 1.39.94 1.39.94.81 1.39 2.13.99 2.65.76.08-.59.32-1 .58-1.23-2.01-.23-4.12-1-4.12-4.44 0-.98.35-1.78.93-2.4-.09-.23-.4-1.14.09-2.37 0 0 .76-.24 2.48.92A8.65 8.65 0 0 1 12 7.54c.77 0 1.55.1 2.27.3 1.72-1.16 2.48-.92 2.48-.92.49 1.23.18 2.14.09 2.37.58.62.93 1.42.93 2.4 0 3.45-2.11 4.2-4.13 4.43.33.29.62.85.62 1.72v2.54c0 .25.17.53.63.44A9 9 0 0 0 12 3.2Z" />
     </symbol>
-    <symbol id="icon-server" viewBox="0 0 24 24">
-      <rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M15 7h2M15 17h2"/>
-    </symbol>
-    <symbol id="icon-shield" viewBox="0 0 24 24">
-      <path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>
-    </symbol>
-    <symbol id="icon-network" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21M12 3C9.8 5.4 8.7 8.4 8.7 12s1.1 6.6 3.3 9"/>
-    </symbol>
-    <symbol id="icon-bolt" viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z"/></symbol>
-    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-14.25-4L4 9" /><path d="M4 5v4h4M4 13a8.1 8.1 0 0 0 14.25 4L20 15" /><path d="M20 19v-4h-4" /></symbol>
+    <symbol id="icon-power" viewBox="0 0 24 24"><path d="M12 3v8" /><path d="M6.4 6.4a8 8 0 1 0 11.2 0" /></symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 3 5.5 6v5c0 4.5 2.7 7.8 6.5 10 3.8-2.2 6.5-5.5 6.5-10V6L12 3Z" /><path d="m9 12 2 2 4-4" /></symbol>
+    <symbol id="icon-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.2" /><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M2.8 2.8a13 13 0 0 0 0 18.4M21.2 2.8a13 13 0 0 1 0 18.4" /></symbol>
+    <symbol id="icon-warp" viewBox="0 0 24 24"><path d="m20.7 4.2-7.8 15.6-2.5-6.1-6.1-2.5 16.4-7Z" /><path d="m10.6 13.4 4.3-4.1" /></symbol>
+    <symbol id="icon-wireguard" viewBox="0 0 24 24"><path d="M12 3.2 19 6v5.25c0 4.58-2.76 7.86-7 9.55-4.24-1.69-7-4.97-7-9.55V6l7-2.8Z" /><path d="M8.5 12h7M12 8.5v7" /></symbol>
+    <symbol id="icon-network" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8" /><path d="M3.5 12h17M12 3.2c2.2 2.4 3.2 5.4 3.2 8.8s-1 6.4-3.2 8.8M12 3.2C9.8 5.6 8.8 8.6 8.8 12s1 6.4 3.2 8.8" /></symbol>
+    <symbol id="icon-terminal" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="m7.5 9 3 3-3 3M13 15h3.5" /></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12.5 4.3 4.3L19 7" /></symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 4 21 20H3L12 4Z" /><path d="M12 9v5M12 17.5v.1" /></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+    <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
   </svg>
 
-  <header class="app-header">
-    <div class="app-wordmark">BKNetwork</div>
-    <div class="app-header-actions">
-      <div class="mode-switch" aria-label="高级模式切换">
-        <span class="label">高级模式</span>
-        <label class="toggle" title="切换高级模式">
-          <input id="advancedModeToggle" type="checkbox" />
-          <span class="toggle-track" aria-hidden="true"></span>
-        </label>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="主导航">
+      <div class="sidebar-top">
+        <a class="brand" href="#overview" aria-label="BKNetwork 首页">
+          <span class="brand-mark"><svg class="icon icon-mark"><use href="#icon-mark" /></svg></span>
+          <span class="brand-copy"><strong>BKNetwork</strong><small>本机网络控制台</small></span>
+        </a>
+        <span class="os-badge"><span class="status-dot ready"></span> Ubuntu 26.04</span>
       </div>
 
-      <button class="settings-fab header-action" id="settingsOpenBtn" type="button" aria-label="打开设置面板" title="设置">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <span>设置</span>
-      </button>
+      <nav class="nav-list">
+        <span class="nav-label">控制台</span>
+        <a class="nav-item is-active" href="#overview"><svg class="icon"><use href="#icon-grid" /></svg><span>概览</span></a>
+        <a class="nav-item" href="#connection"><svg class="icon"><use href="#icon-route" /></svg><span>连接方式</span></a>
+        <a class="nav-item" href="#diagnostics"><svg class="icon"><use href="#icon-terminal" /></svg><span>诊断日志</span></a>
+        <span class="nav-label nav-label-spaced">偏好</span>
+        <button class="nav-item nav-button" id="settingsOpenBtn" type="button"><svg class="icon"><use href="#icon-sliders" /></svg><span>设置</span></button>
+      </nav>
 
-      <a class="github-fab header-action" href="https://github.com/tangmuguo/BKNetwork" target="_blank" rel="noreferrer" aria-label="访问 GitHub 主页">
-        <img src="github-light.svg" alt="" />
-        <span>GitHub</span>
-      </a>
-    </div>
-  </header>
-
-  <div class="operation-toast visible" id="operationToast" role="status" aria-live="polite" aria-atomic="true" data-tone="info">
-    <div class="operation-toast__title" id="operationToastTitle">正在初始化...</div>
-    <div class="operation-toast__desc" id="operationToastDesc">正在连接 WebSocket 并同步页面状态</div>
-  </div>
-
-  <div class="settings-overlay" id="settingsOverlay" aria-hidden="true">
-    <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-      <header>
-        <div>
-          <h3 id="settingsTitle">设置</h3>
-          <div class="settings-desc">管理应用与 WARP 的启动行为</div>
+      <div class="sidebar-bottom">
+        <div class="sidebar-note">
+          <span class="sidebar-note-icon"><svg class="icon"><use href="#icon-shield" /></svg></span>
+          <div><strong>本机优先</strong><span>连接与路由只在这台设备上生效。</span></div>
         </div>
-        <button class="close-btn" id="settingsCloseBtn" type="button" aria-label="关闭设置">×</button>
+        <a class="github-link" href="https://github.com/tangmuguo/BKNetwork" target="_blank" rel="noreferrer">
+          <svg class="icon"><use href="#icon-github" /></svg><span>查看 GitHub 仓库</span><svg class="icon icon-arrow"><use href="#icon-chevron" /></svg>
+        </a>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenuBtn" type="button" aria-label="打开导航" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#icon-menu" /></svg></button>
+        <div class="breadcrumbs"><span>BKNetwork</span><span class="breadcrumb-separator">/</span><strong>网络控制台</strong></div>
+        <div class="topbar-actions">
+          <span class="readonly-chip" id="readonlyChip" hidden><svg class="icon"><use href="#icon-alert" /></svg>只读预览</span>
+          <span class="backend-chip" id="backendChip"><span class="status-dot pending"></span><span id="backendText">正在连接</span></span>
+          <button class="icon-button" id="topSettingsBtn" type="button" aria-label="打开设置" title="设置"><svg class="icon"><use href="#icon-sliders" /></svg></button>
+        </div>
       </header>
-      <div class="settings-body">
-        <div class="setting-row">
-          <div class="setting-copy">
-            <div class="setting-title">BKNetwork 开机自启</div>
-            <div class="setting-note">登录 Windows 后自动启动 BKNetwork</div>
+
+      <main class="main-content" id="mainContent">
+        <section class="hero" id="overview" aria-labelledby="heroTitle">
+          <div class="hero-copy-block">
+            <div class="eyebrow"><span class="eyebrow-line"></span> Ubuntu 本机模式 <span class="eyebrow-version" id="appVersion">—</span></div>
+            <h1 id="heroTitle">校园网 <span>IPv6</span><br />连接中心</h1>
+            <p class="hero-description">选择一个隧道通道，把校园网的 IPv6 出口交给本机管理。状态来自系统实时检测，连接前会先检查依赖与网卡。</p>
+            <div class="hero-meta"><span class="live-pulse" id="livePulse"></span><span id="lastUpdated">等待状态同步</span><span class="meta-separator">·</span><span id="platformName">本机 Linux</span></div>
           </div>
-          <span class="toggle">
-            <input id="settingAutoStart" type="checkbox" />
-            <span class="toggle-track" aria-hidden="true"></span>
-          </span>
-        </div>
-        <div class="setting-row">
-          <div class="setting-copy">
-            <div class="setting-title">静默启动</div>
-            <div class="setting-note">启动时不弹出网页，只保留托盘</div>
+
+          <div class="connection-card" id="connectionCard" data-phase="idle">
+            <div class="connection-card-top"><div class="connection-kicker">当前连接</div><span class="phase-badge" id="phaseBadge"><span class="status-dot pending"></span><span id="phaseText">正在读取</span></span></div>
+            <div class="connection-title" id="connectionTitle">尚未连接</div>
+            <div class="connection-message" id="connectionMessage">正在读取本机网络状态。</div>
+            <div class="connection-progress" aria-hidden="true"><span class="progress-track"><span id="progressBar"></span></span><span class="progress-label" id="progressLabel">待命</span></div>
+            <button class="primary-action" id="connectionAction" type="button" disabled><svg class="icon"><use href="#icon-power" /></svg><span id="connectionActionText">连接</span></button>
           </div>
-          <span class="toggle">
-            <input id="settingSilentStart" type="checkbox" />
-            <span class="toggle-track" aria-hidden="true"></span>
-          </span>
-        </div>
-        <div class="setting-row">
-          <div class="setting-copy">
-            <div class="setting-title">WARP 客户端开机自启</div>
-            <div class="setting-note">登录 Windows 后自动启动 WARP 客户端，不自动连接</div>
+        </section>
+
+        <section class="section-block" id="connection" aria-labelledby="connectionHeading">
+          <div class="section-heading"><div><div class="section-eyebrow">01 / 通道选择</div><h2 id="connectionHeading">选择连接方式</h2><p>通道会接管本机的 IPv4 / IPv6 流量，断开后恢复原网络。</p></div><span class="section-status" id="selectedModeHint">选择一个通道</span></div>
+
+          <div class="mode-tabs" id="modeTabs" role="tablist" aria-label="连接方式">
+            <button class="mode-tab is-selected" id="warpModeTab" type="button" role="tab" aria-selected="true" aria-controls="warpPanel" data-mode="warp"><span class="mode-tab-icon warp-icon"><svg class="icon"><use href="#icon-warp" /></svg></span><span class="mode-tab-copy"><strong>Cloudflare WARP</strong><small>快速建立 IPv6 出口</small></span><span class="mode-tab-state" id="warpTabState">—</span></button>
+            <button class="mode-tab" id="wireguardModeTab" type="button" role="tab" aria-selected="false" aria-controls="wireguardPanel" data-mode="wireguard"><span class="mode-tab-icon wireguard-icon"><svg class="icon"><use href="#icon-wireguard" /></svg></span><span class="mode-tab-copy"><strong>家庭 WireGuard</strong><small>通过已导入的配置连接</small></span><span class="mode-tab-state" id="wireguardTabState">—</span></button>
           </div>
-          <span class="toggle">
-            <input id="settingWarpAppAutoStart" type="checkbox" />
-            <span class="toggle-track" aria-hidden="true"></span>
-          </span>
-        </div>
-        <div class="settings-status" id="settingsStatus">未加载</div>
-      </div>
+
+          <div class="mode-panel-grid">
+            <div class="shared-interface-control"><div class="shared-control-copy"><label for="interfaceSelect">物理网卡</label><span class="field-help" id="interfaceHelp">仅显示系统检测到的物理网卡。</span></div><select id="interfaceSelect"><option value="">正在读取可用网卡…</option></select></div>
+            <article class="mode-panel is-visible" id="warpPanel" role="tabpanel" aria-labelledby="warpModeTab" data-mode-panel="warp">
+              <div class="panel-heading"><div class="panel-icon warp-panel-icon"><svg class="icon"><use href="#icon-warp" /></svg></div><div><h3>Cloudflare WARP</h3><p>使用 WARP 为校园网 IPv6 提供隧道出口。配置应用分流后，ChatGPT 与 quota-float 可继续使用 Clash。</p></div><span class="availability-tag" id="warpAvailability">检测中</span></div>
+              <div class="panel-footer"><span class="panel-footnote"><svg class="icon"><use href="#icon-shield" /></svg><span id="warpPanelNote">连接前会检查 WARP 客户端与管理员权限。</span></span><span class="panel-state" id="warpPanelState">未连接</span></div>
+            </article>
+
+            <article class="mode-panel" id="wireguardPanel" role="tabpanel" aria-labelledby="wireguardModeTab" data-mode-panel="wireguard" hidden>
+              <div class="panel-heading"><div class="panel-icon wireguard-panel-icon"><svg class="icon"><use href="#icon-wireguard" /></svg></div><div><h3>家庭 WireGuard</h3><p>通过已导入的家庭配置建立 IPv6 隧道。</p></div><span class="availability-tag" id="wireguardAvailability">检测中</span></div>
+              <div class="panel-control"><label for="profileSelect">连接配置</label><div class="select-with-action"><select id="profileSelect"><option value="">正在读取 WireGuard 配置…</option></select><button class="small-action" id="profileRefreshBtn" type="button" title="刷新配置列表"><svg class="icon"><use href="#icon-refresh" /></svg><span>刷新</span></button></div><span class="field-help" id="profileHelp">从本机 WireGuard 配置目录读取名称；私钥不会显示在页面或日志中。</span></div>
+              <div class="panel-footer"><span class="panel-footnote"><svg class="icon"><use href="#icon-shield" /></svg><span id="wireguardPanelNote">连接前会检查 WireGuard 服务与配置。</span></span><span class="panel-state" id="wireguardPanelState">未连接</span></div>
+            </article>
+          </div>
+
+          <div class="recovery-banner" id="recoveryBanner" hidden><span class="recovery-icon"><svg class="icon"><use href="#icon-alert" /></svg></span><div><strong>网络需要恢复</strong><p id="recoveryText">上次操作留下了待恢复状态，请先执行恢复直连。</p></div><button class="secondary-action" id="recoveryAction" type="button"><svg class="icon"><use href="#icon-refresh" /></svg>恢复直连</button></div>
+        </section>
+
+        <section class="section-block" id="diagnostics" aria-labelledby="diagnosticsHeading">
+          <div class="section-heading"><div><div class="section-eyebrow">02 / 本机诊断</div><h2 id="diagnosticsHeading">准备情况</h2><p>查看客户端依赖、物理网卡和当前连接状态。</p></div><span class="section-status" id="readinessSummary">等待检查</span></div>
+          <div class="diagnostics-grid">
+            <div class="readiness-panel"><div class="subheading"><h3>连接前检查</h3><span id="readinessCount">—</span></div><div class="readiness-list" id="readinessList"><div class="empty-state">正在读取依赖状态…</div></div></div>
+            <div class="facts-panel"><div class="subheading"><h3>当前网络</h3><span class="muted-label">实时状态</span></div><div class="facts-grid" id="networkFacts"><div class="fact"><span>物理网卡</span><strong>—</strong></div><div class="fact"><span>IPv6 地址</span><strong>—</strong></div><div class="fact"><span>验证结果</span><strong>—</strong></div><div class="fact"><span>协议栈</span><strong>—</strong></div></div><div class="path-strip" id="pathStrip"><span class="path-node is-muted">本机</span><span class="path-line"></span><span class="path-node is-muted">IPv6 出口</span><span class="path-line"></span><span class="path-node is-muted">校园网</span></div></div>
+          </div>
+        </section>
+
+        <section class="section-block log-section" aria-labelledby="logHeading">
+          <div class="section-heading compact"><div><div class="section-eyebrow">03 / 事件记录</div><h2 id="logHeading">实时日志</h2><p>只显示本次页面会话收到的状态事件。</p></div><button class="text-action" id="clearLogBtn" type="button">清空记录</button></div>
+          <div class="log-panel"><div class="log-head"><span><span class="live-pulse small"></span> LIVE</span><span id="logCount">0 条记录</span></div><ol class="log-list" id="logList" aria-live="polite"><li class="log-empty">等待连接事件…</li></ol></div>
+        </section>
+
+        <div class="readonly-banner" id="readonlyBanner" hidden><span class="readonly-icon"><svg class="icon"><use href="#icon-alert" /></svg></span><div><strong>当前为只读预览</strong><p>普通用户启动只能查看状态。需要连接或恢复网络时，请在项目目录运行 <code>sudo ./bknetwork run --no-browser</code>。</p></div></div>
+      </main>
+
+      <footer class="app-footer"><span>BKNetwork · 本机网络控制台</span><span id="footerVersion">版本 —</span></footer>
     </div>
   </div>
 
-  <main class="shell">
-    <section class="hero">
-      <div class="panel hero-main">
-        <div class="hero-brand-row">
-          <div class="brand-icon" aria-hidden="true">
-            <svg class="ui-icon"><use href="#icon-brand"/></svg>
-          </div>
-          <div class="hero-copy">
-            <h1>北科校园网助手</h1>
-            <p class="lead">v2.0.0</p>
-            <div class="badge ipv6-check-badge" id="ipv6CheckBadge">
-              <span id="ipv6CheckDot" class="dot warn"></span>
-              <span id="ipv6CheckText" class="ipv6-check-text">正在检测 IPv6 地址...</span>
-              <button id="ipv6RefreshBtn" class="ipv6-refresh" type="button" aria-label="刷新 IPv6 检测" title="刷新 IPv6 检测">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4c-4.42 0-8 3.58-8 8s3.58 8 8 8c3.31 0 6.14-2.01 7.36-4.88a1 1 0 1 0-1.84-.8A6 6 0 1 1 12 6c1.38 0 2.63.47 3.63 1.24L14 9h6V3l-2.35 3.35Z"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="status-row">
-          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-server"/></svg><span id="backendDot" class="dot warn"></span><span id="backendBadge">后端状态</span></div>
-          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-shield"/></svg><span id="adminDot" class="dot warn"></span><span id="adminBadge">管理员权限检查中</span></div>
-          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-network"/></svg><span id="networkDot" class="dot"></span><span id="networkBadge">网络状态</span></div>
-          <div class="badge"><svg class="ui-icon status-icon"><use href="#icon-bolt"/></svg><span id="freeDot" class="dot"></span><span id="freeBadge">免流状态</span></div>
-        </div>
-      </div>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" hidden><span class="toast-icon"><svg class="icon" id="toastIcon"><use href="#icon-check" /></svg></span><span id="toastText"></span></div>
 
-      <aside class="panel hero-side">
-        <a class="mini mini-link" href="http://202.204.48.66" target="_blank" rel="noreferrer">
-          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-login"/></svg></span>
-          <span class="mini-copy"><span class="label">快捷入口</span><span class="value">登录校园网</span></span>
-          <svg class="ui-icon mini-arrow"><use href="#icon-arrow"/></svg>
-        </a>
-        <a class="mini mini-link" href="https://zifuwu.ustb.edu.cn/" target="_blank" rel="noreferrer">
-          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-campus"/></svg></span>
-          <span class="mini-copy"><span class="label">快捷入口</span><span class="value">校园网管理系统</span></span>
-          <svg class="ui-icon mini-arrow"><use href="#icon-arrow"/></svg>
-        </a>
-        <div class="mini">
-          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-traffic"/></svg></span>
-          <span class="mini-copy"><span class="label">本月流量统计</span><span class="value" id="trafficUsage">未加载</span></span>
-        </div>
-        <div class="mini">
-          <span class="mini-icon"><svg class="ui-icon"><use href="#icon-clock"/></svg></span>
-          <span class="mini-copy"><span class="label">状态更新时间</span><span class="value" id="lastUpdated">未加载</span></span>
-        </div>
-      </aside>
+  <div class="modal-layer" id="settingsLayer" hidden>
+    <div class="modal-backdrop" data-close-settings="true"></div>
+    <section class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" tabindex="-1">
+      <div class="modal-header"><div><div class="section-eyebrow">偏好设置</div><h2 id="settingsTitle">启动行为</h2></div><button class="icon-button" id="settingsCloseBtn" type="button" aria-label="关闭设置"><svg class="icon"><use href="#icon-close" /></svg></button></div>
+      <p class="modal-intro">这些选项只影响本机的启动方式，不会改变隧道配置。</p>
+      <div class="settings-list">
+        <label class="setting-row"><span><strong>开机启动后台服务</strong><small>需要已安装 systemd 服务；启用后仍需手动连接隧道。</small></span><span class="switch"><input id="settingAutoStart" type="checkbox" /><span class="switch-track"></span></span></label>
+      </div>
+      <div class="modal-footer"><span class="settings-status" id="settingsStatus">尚未加载</span><div><button class="secondary-action" id="settingsCancelBtn" type="button">取消</button><button class="primary-action modal-save" id="settingsSaveBtn" type="button"><span>保存设置</span></button></div></div>
     </section>
+  </div>
 
-    <section class="panel section easy-mode" id="easyModeSection">
-      <div class="section-head">
-        <div>
-          <h2>校园网免流</h2>
-        </div>
-      </div>
-      <label class="easy-mode-card" for="easyModeToggle">
-        <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-warp"/></svg></span>
-        <div class="feature-copy">
-          <div class="easy-mode-title">WARP 免流模式</div>
-          <div class="easy-mode-desc">开启后切换为仅 v6，并启用 WARP；关闭则恢复双栈并关闭 WARP</div>
-          <div class="easy-mode-state" id="easyModeState">当前关闭</div>
-        </div>
-        <span class="toggle">
-          <input id="easyModeToggle" type="checkbox" />
-          <span class="toggle-track" aria-hidden="true"></span>
-        </span>
-      </label>
-
-      <div class="easy-mode-secondary-card home-network-card">
-        <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-server"/></svg></span>
-        <div class="home-network-copy">
-          <div class="easy-mode-title">&#23478;&#24237;&#32593;&#32476; WireGuard</div>
-          <div class="easy-mode-desc">&#36890;&#36807;&#23478;&#37324;&#30340; Ubuntu &#26381;&#21153;&#22120;&#19978;&#32593;&#65292;&#26367;&#20195; Cloudflare WARP&#12290;&#35831;&#20808;&#22312;&#23448;&#26041; WireGuard &#23458;&#25143;&#31471;&#23548;&#20837;&#23478;&#24237;&#37197;&#32622;&#65288;Endpoint &#20363;&#22914; [&#20844;&#32593; IPv6]:51820&#65289;&#12290;</div>
-          <div class="home-tunnel-row">
-            <label for="homeTunnelSelect">&#23478;&#24237;&#38543;&#36947;</label>
-            <select id="homeTunnelSelect" class="home-tunnel-select" disabled>
-              <option value="">&#27491;&#22312;&#35835;&#21462;&#24050;&#23548;&#20837;&#30340; WireGuard &#37197;&#32622;...</option>
-            </select>
-            <button id="homeNetworkRefreshBtn" class="home-refresh-btn secondary" type="button">&#21047;&#26032;</button>
-          </div>
-          <div class="easy-mode-state" id="homeNetworkState">&#27491;&#22312;&#26816;&#26597; WireGuard...</div>
-        </div>
-        <label class="toggle" for="homeNetworkToggle">
-          <input id="homeNetworkToggle" type="checkbox" disabled />
-          <span class="toggle-track" aria-hidden="true"></span>
-        </label>
-      </div>
-      <div class="easy-mode-secondary-card clash-split-card">
-        <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-route"/></svg></span>
-        <div class="clash-split-copy">
-          <div class="easy-mode-title">ChatGPT → Clash Verge 分流</div>
-          <div class="easy-mode-desc">仅将 ChatGPT/OpenAI 必要域名交给 Clash；其余流量直连并继续由 WARP 或家庭 WireGuard 承载。建议 Clash 使用系统代理、全局模式并选择日区节点，关闭 TUN。</div>
-          <div class="clash-address-row">
-            <label for="clashProxyAddress">Clash HTTP/mixed 地址</label>
-            <input id="clashProxyAddress" class="clash-proxy-input" type="text" value="127.0.0.1:7897" autocomplete="off" spellcheck="false" inputmode="text" />
-          </div>
-          <div class="easy-mode-state" id="chatGPTClashState">正在检查...</div>
-        </div>
-        <label class="toggle" for="chatGPTClashToggle">
-          <input id="chatGPTClashToggle" type="checkbox" />
-          <span class="toggle-track" aria-hidden="true"></span>
-        </label>
-      </div>
-      <div class="resource-grid">
-        <a class="resource-card" href="https://downloads.cloudflareclient.com/v1/download/windows/ga" target="_blank" rel="noreferrer">
-          <span class="resource-icon"><svg class="ui-icon"><use href="#icon-download"/></svg></span>
-          <span class="resource-copy">
-            <strong>WARP 免流模式需安装 WARP</strong>
-            <span>在此下载 WARP，可在设置页面关闭开机自启，不影响功能</span>
-          </span>
-          <svg class="ui-icon resource-arrow"><use href="#icon-arrow"/></svg>
-        </a>
-        <div class="resource-card">
-          <span class="resource-icon"><svg class="ui-icon"><use href="#icon-community"/></svg></span>
-          <span class="resource-copy">
-            <strong>更多免流模式</strong>
-            <span class="resource-links"><a href="https://t.me/ernst_loosen_bot" target="_blank" rel="noreferrer">telegram</a><a href="https://discord.com/invite/vNfM9ezTdE" target="_blank" rel="noreferrer">discord</a></span>
-          </span>
-        </div>
-      </div>
-    </section>
-
-    <div class="advanced-only">
-      <section class="grid">
-        <div class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>网络控制</h2>
-              <div class="section-kicker"><!-- 描述 --></div>
-            </div>
-          </div>
-          <div class="control-grid">
-            <div class="control-card">
-              <div class="control-label">目标网卡</div>
-              <div class="control-value">
-                <select id="ifName2" class="target-adapter-select">
-                  <option value="WiFi">WiFi</option>
-                </select>
-              </div>
-            </div>
-            <div class="control-card">
-              <div class="control-label">切换 ip 栈协议</div>
-              <div class="mode-select" role="radiogroup" aria-label="网络模式选择">
-                <button id="btnIpv4" class="mode-option" type="button" onclick="switchStack('ipv4').catch(() => {})" aria-pressed="false">
-                  <span class="mode-dot" aria-hidden="true"></span>
-                  <span>仅 v4</span>
-                </button>
-                <button id="btnIpv6" class="mode-option" type="button" onclick="switchStack('ipv6').catch(() => {})" aria-pressed="false">
-                  <span class="mode-dot" aria-hidden="true"></span>
-                  <span>仅 v6</span>
-                </button>
-                <button id="btnBoth" class="mode-option" type="button" onclick="switchStack('both').catch(() => {})" aria-pressed="false">
-                  <span class="mode-dot" aria-hidden="true"></span>
-                  <span>双栈</span>
-                </button>
-              </div>
-              <div class="mode-state" id="stackModeState">当前：未加载</div>
-            </div>
-            <div class="control-card dns-card" id="dnsCard">
-              <div class="control-label">更改 DNS</div>
-              <div class="dns-grid">
-                <label class="dns-field" for="dnsIpv4Input">
-                  <span>IPv4 DNS</span>
-                  <input id="dnsIpv4Input" class="dns-input" type="text" autocomplete="off" spellcheck="false" placeholder="例如 1.1.1.1" />
-                </label>
-                <label class="dns-field" for="dnsIpv6Input">
-                  <span>IPv6 DNS</span>
-                  <input id="dnsIpv6Input" class="dns-input" type="text" autocomplete="off" spellcheck="false" placeholder="例如 2400:3200::1" />
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Cloudflare WARP</h2>
-              <div class="section-kicker"><!-- 描述 --></div>
-            </div>
-          </div>
-          <label class="warp-toggle-card" for="warpToggle">
-            <div class="warp-copy">
-              <div class="warp-title">WARP 客户端开关</div>
-              <div class="warp-desc">仅控制 WARP 连接，不切换 IP 栈；校园网免流请使用基础模式的“WARP 免流模式”</div>
-              <div class="warp-state" id="warpState">当前：未加载</div>
-            </div>
-            <span class="toggle">
-              <input id="warpToggle" type="checkbox" />
-              <span class="toggle-track" aria-hidden="true"></span>
-            </span>
-          </label>
-          <div class="warp-settings-card" aria-live="polite">
-            <div class="warp-settings-head">
-              <div class="warp-title">WARP 配置</div>
-              <div class="warp-settings-state" id="warpSettingsState">正在加载</div>
-            </div>
-            <div class="warp-settings-grid">
-              <div class="warp-setting-item">
-                <span>Mode</span>
-                <strong id="warpSettingsMode">--</strong>
-              </div>
-              <div class="warp-setting-item">
-                <span>WARP tunnel protocol</span>
-                <strong id="warpSettingsTunnelProtocol">--</strong>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </section>
-
-      <section class="panel section advanced-section">
-        <div class="section-head">
-          <div>
-            <h2>网卡</h2>
-            <div class="section-kicker"><!-- 描述 --></div>
-          </div>
-        </div>
-        <div class="adapter-list" id="adapterList"></div>
-      </section>
-
-      <section class="panel section advanced-section">
-        <div class="section-head">
-          <div>
-            <h2>日志</h2>
-            <div class="section-kicker"><!-- 描述 --></div>
-          </div>
-        </div>
-        <div class="log-box" id="log"></div>
-      </section>
-    </div>
-  </main>
-
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

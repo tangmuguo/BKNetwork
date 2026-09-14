@@ -1,0 +1,154 @@
+#!/usr/bin/python3
+"""BKNetwork's optional GNOME AppIndicator status item."""
+
+import fcntl
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+
+try:
+    import gi
+
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3, GLib, Gtk
+except (ImportError, ValueError) as exc:
+    print(f"BKNetwork status indicator unavailable: {exc}", file=sys.stderr)
+    raise SystemExit(0)
+
+
+SERVICE_NAME = "bknetwork.service"
+ADDRESS = "http://127.0.0.1:13335/"
+STOP_COMMAND = "/usr/local/bin/bknetwork-stop"
+ICON_NAME = "bknetwork"
+ICON_DIR = "/usr/share/icons/hicolor/scalable/apps"
+
+
+def acquire_instance_lock():
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "")
+    if not runtime_dir or not os.path.isdir(runtime_dir):
+        runtime_dir = os.path.join(os.path.expanduser("~/.cache"), "bknetwork")
+        os.makedirs(runtime_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(runtime_dir, 0o700)
+        except OSError:
+            pass
+
+    lock_path = Path(runtime_dir) / "bknetwork-indicator.lock"
+    lock_file = None
+    try:
+        lock_file = lock_path.open("a+")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        if lock_file is not None:
+            lock_file.close()
+        return None
+    return lock_file
+
+
+def service_state():
+    try:
+        result = subprocess.run(
+            ["/usr/bin/systemctl", "is-active", SERVICE_NAME],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip()
+
+
+def service_is_running():
+    return service_state() in {"active", "activating", "deactivating"}
+
+
+def open_page(_item):
+    try:
+        subprocess.Popen(
+            ["/usr/bin/xdg-open", ADDRESS],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        pass
+
+
+def stop_project(_item):
+    try:
+        subprocess.Popen(
+            [STOP_COMMAND],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        pass
+
+
+def quit_when_service_stops():
+    if service_is_running():
+        return True
+    Gtk.main_quit()
+    return False
+
+
+def main():
+    lock_file = acquire_instance_lock()
+    if lock_file is None:
+        return 0
+    if not service_is_running():
+        lock_file.close()
+        return 0
+
+    try:
+        Gtk.init([])
+    except Exception as exc:  # A launcher must keep working without a panel host.
+        print(f"BKNetwork status indicator unavailable: {exc}", file=sys.stderr)
+        lock_file.close()
+        return 0
+
+    indicator = AyatanaAppIndicator3.Indicator.new_with_path(
+        "bknetwork",
+        ICON_NAME,
+        AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS,
+        ICON_DIR,
+    )
+    indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
+    indicator.set_title("BKNetwork")
+
+    menu = Gtk.Menu()
+
+    status_item = Gtk.MenuItem.new_with_label("BKNetwork 后端运行中")
+    status_item.set_sensitive(False)
+    menu.append(status_item)
+
+    menu.append(Gtk.SeparatorMenuItem())
+
+    open_item = Gtk.MenuItem.new_with_label("打开 BKNetwork")
+    open_item.connect("activate", open_page)
+    menu.append(open_item)
+
+    stop_item = Gtk.MenuItem.new_with_label("关闭 BKNetwork 全部")
+    stop_item.connect("activate", stop_project)
+    menu.append(stop_item)
+
+    menu.show_all()
+    indicator.set_menu(menu)
+
+    GLib.timeout_add_seconds(2, quit_when_service_stops)
+    signal.signal(signal.SIGTERM, lambda *_args: Gtk.main_quit())
+    signal.signal(signal.SIGINT, lambda *_args: Gtk.main_quit())
+    Gtk.main()
+    lock_file.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

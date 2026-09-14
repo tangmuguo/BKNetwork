@@ -1,0 +1,85 @@
+#!/bin/sh
+
+set -eu
+
+service_name=bknetwork.service
+systemctl_bin=/usr/bin/systemctl
+pkexec_bin=/usr/bin/pkexec
+app_binary=/opt/bknetwork/bknetwork
+state_dir=/var/lib/bknetwork
+
+notify() {
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send --app-name=BKNetwork "BKNetwork" "$1" >/dev/null 2>&1 || true
+  fi
+}
+
+fail() {
+  notify "$1"
+  printf 'bknetwork-stop: %s\n' "$1" >&2
+  exit 1
+}
+
+recover_network() {
+  [ -x "$app_binary" ] || return 0
+
+  # The journal lives in root-owned /var/lib/bknetwork and the CLI deliberately
+  # refuses to restore it as an unprivileged desktop user.  The stop action is
+  # normally launched by the status indicator, so elevate this second, idempotent
+  # recovery pass as well; otherwise a clean page-level disconnect is reported
+  # as a failed recovery solely because of permissions.
+  if [ "$(id -u)" -eq 0 ]; then
+    "$app_binary" recover --state-dir "$state_dir"
+    return
+  fi
+  [ -x "$pkexec_bin" ] || {
+    printf '%s\n' '找不到 pkexec，无法请求管理员权限检查网络恢复状态。' >&2
+    return 127
+  }
+  "$pkexec_bin" "$app_binary" recover --state-dir "$state_dir"
+}
+
+[ -x "$systemctl_bin" ] || fail '找不到 systemctl，请确认 BKNetwork 已安装在 Ubuntu 26.04。'
+
+service_state=$("$systemctl_bin" is-active "$service_name" 2>/dev/null || true)
+case "$service_state" in
+  active|activating|deactivating)
+    if [ "$(id -u)" -eq 0 ]; then
+      "$systemctl_bin" stop "$service_name" || fail 'BKNetwork 服务停止失败，请检查 systemctl status。'
+    else
+      [ -x "$pkexec_bin" ] || fail '找不到 pkexec，无法请求管理员权限关闭 BKNetwork。'
+      "$pkexec_bin" "$systemctl_bin" stop "$service_name" || fail 'BKNetwork 服务停止失败，请检查授权和 systemctl status。'
+    fi
+    ;;
+  inactive|failed)
+    ;;
+  unknown|'')
+    fail '找不到 bknetwork.service，请先安装 BKNetwork。'
+    ;;
+  *)
+    fail "无法确认 BKNetwork 服务状态：$service_state"
+    ;;
+esac
+
+service_state=$("$systemctl_bin" is-active "$service_name" 2>/dev/null || true)
+case "$service_state" in
+  active|activating|deactivating)
+    fail 'BKNetwork 服务仍在运行，请检查 systemctl status。'
+    ;;
+  inactive|failed)
+    ;;
+  unknown|'')
+    fail '关闭后无法确认 bknetwork.service 状态。'
+    ;;
+  *)
+    fail "关闭后无法确认 BKNetwork 服务状态：$service_state"
+    ;;
+esac
+
+# A normal service stop already performs this recovery. Repeating it is
+# intentional: it also repairs a journal left by an earlier interrupted stop.
+if ! recover_network; then
+  fail '服务已停止，但网络恢复未完成；请执行 sudo /opt/bknetwork/bknetwork recover。'
+fi
+
+notify 'BKNetwork 已关闭，后台服务和网络状态已恢复。'

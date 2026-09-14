@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"bknetwork/internal/appinfo"
 	"bknetwork/internal/events"
@@ -37,24 +37,13 @@ func NewServer(addr string) *Server {
 	}
 	mux := http.NewServeMux()
 	hub := events.NewHub()
-	webDir, webReady := resolveWebDir()
+	webHandler, webReady := platformWebHandler()
 	mux.HandleFunc(ReadyPath, readyHandler(webReady))
-	mux.HandleFunc("/api/v1/switch", handlers.SwitchStackHandler(hub))
-	mux.HandleFunc("/api/v1/dns", handlers.DnsHandler(hub))
-	mux.HandleFunc("/api/v1/warp", handlers.WarpHandler(hub))
-	mux.HandleFunc("/api/v1/warp-mode", handlers.WarpModeHandler(hub))
-	mux.HandleFunc("/api/v1/warp-status", handlers.WarpStatusHandler())
-	mux.HandleFunc("/api/v1/home-network", handlers.HomeNetworkHandler(hub))
-	mux.HandleFunc("/api/v1/chatgpt-proxy", handlers.ChatGPTProxyHandler(hub))
-	mux.HandleFunc("/api/v1/chatgpt-proxy.pac", handlers.ChatGPTProxyPACHandler())
-	mux.HandleFunc("/api/v1/settings", handlers.SettingsHandler(hub))
-	mux.HandleFunc("/api/v1/status", handlers.StatusHandler(hub))
-	mux.HandleFunc("/api/v1/version/latest", handlers.LatestVersionHandler())
-	mux.HandleFunc("/ws", handlers.WSHandler(hub))
+	handlers.RegisterRoutes(mux, hub)
 
-	// static files: prefer the executable directory, then the current working directory.
+	// Serve only build-time assets from the Ubuntu executable.
 	if webReady {
-		mux.Handle("/", noStoreFileServer(webDir))
+		mux.Handle("/", webHandler)
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
@@ -65,8 +54,10 @@ func NewServer(addr string) *Server {
 		hub:   hub,
 		ready: make(chan struct{}),
 		httpServer: &http.Server{
-			Addr:    addr,
-			Handler: mux,
+			Addr:              addr,
+			Handler:           localOnly(mux, addr),
+			ReadHeaderTimeout: 5 * time.Second,
+			IdleTimeout:       60 * time.Second,
 		},
 	}
 }
@@ -93,42 +84,8 @@ func readyHandler(webReady bool) http.HandlerFunc {
 	}
 }
 
-func noStoreFileServer(webDir string) http.Handler {
-	staticFiles := http.FileServer(http.Dir(webDir))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The UI is served from a fixed localhost URL across upgrades. Prevent
-		// stale index/app.js files from surviving an application upgrade.
-		w.Header().Set("Cache-Control", "no-store, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
-		staticFiles.ServeHTTP(w, r)
-	})
-}
-
 func (s *Server) Ready() <-chan struct{} {
 	return s.ready
-}
-
-func resolveWebDir() (string, bool) {
-	if exePath, err := os.Executable(); err == nil {
-		if dir := filepath.Join(filepath.Dir(exePath), "web"); isWebDir(dir) {
-			return dir, true
-		}
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		if dir := filepath.Join(cwd, "web"); isWebDir(dir) {
-			return dir, true
-		}
-	}
-	return "", false
-}
-
-func isWebDir(path string) bool {
-	dirInfo, err := os.Stat(path)
-	if err != nil || !dirInfo.IsDir() {
-		return false
-	}
-	indexInfo, err := os.Stat(filepath.Join(path, "index.html"))
-	return err == nil && !indexInfo.IsDir()
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -150,15 +107,21 @@ func (s *Server) Start(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		return s.Shutdown(context.Background())
+		return s.shutdownOnExit()
 	case err := <-lnErr:
 		if err != nil && err != http.ErrServerClosed {
 			return fmt.Errorf("http listen error: %w", err)
 		}
 	case <-sig:
-		return s.Shutdown(context.Background())
+		return s.shutdownOnExit()
 	}
 	return nil
+}
+
+func (s *Server) shutdownOnExit() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	return s.Shutdown(ctx)
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {

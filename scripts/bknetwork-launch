@@ -1,0 +1,84 @@
+#!/bin/sh
+
+set -eu
+
+service_name=bknetwork.service
+address=http://127.0.0.1:13335
+indicator_path=/usr/local/bin/bknetwork-indicator
+
+notify() {
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send --app-name=BKNetwork "BKNetwork" "$1" >/dev/null 2>&1 || true
+  fi
+}
+
+if [ "$(id -u)" -eq 0 ]; then
+  printf '%s\n' '桌面启动器必须由当前桌面用户运行，拒绝以 root 打开浏览器。' >&2
+  exit 1
+fi
+
+command -v systemctl >/dev/null 2>&1 || {
+  notify '找不到 systemctl，请确认 BKNetwork 已安装在 Ubuntu 26.04。'
+  printf '%s\n' '找不到 systemctl。' >&2
+  exit 1
+}
+
+if ! systemctl is-active --quiet "$service_name"; then
+  command -v pkexec >/dev/null 2>&1 || {
+    notify '找不到 pkexec，请在终端运行 sudo systemctl start bknetwork.service。'
+    printf '%s\n' '找不到 pkexec，请在终端运行 sudo systemctl start bknetwork.service。' >&2
+    exit 1
+  }
+  if ! pkexec /usr/bin/systemctl start "$service_name"; then
+    notify 'BKNetwork 服务未启动；请检查授权和 systemctl status。'
+    printf '%s\n' 'BKNetwork 服务未启动。' >&2
+    exit 1
+  fi
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  notify '找不到 curl，无法确认本地服务是否就绪。'
+  printf '%s\n' '找不到 curl，请安装基础依赖后重试。' >&2
+  exit 1
+fi
+
+attempt=0
+while [ "$attempt" -lt 80 ]; do
+  if curl --disable --noproxy '*' --proxy '' --fail --silent --show-error --max-time 1 "$address/api/v1/ready" >/dev/null 2>&1; then
+    break
+  fi
+  attempt=$((attempt + 1))
+  sleep 0.25
+done
+
+if [ "$attempt" -ge 80 ]; then
+  notify 'BKNetwork 服务未在预期时间内就绪。'
+  printf '%s\n' '服务未在预期时间内就绪，请查看：systemctl status bknetwork.service' >&2
+  exit 1
+fi
+
+start_indicator() {
+  if [ "${BKNETWORK_NO_INDICATOR:-0}" = 1 ] || { [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; }; then
+    return 0
+  fi
+  if [ -x "$indicator_path" ]; then
+    # The indicator belongs to the desktop user, not to the root service.
+    nohup "$indicator_path" >/dev/null 2>&1 </dev/null &
+  fi
+}
+
+start_indicator
+
+if [ "${BKNETWORK_NO_BROWSER:-0}" = 1 ] || { [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; }; then
+  printf '%s\n' "$address/"
+  exit 0
+fi
+
+command -v xdg-open >/dev/null 2>&1 || {
+  notify "服务已启动：$address/"
+  printf '%s\n' "$address/"
+  exit 0
+}
+
+# 这里刻意不使用 sudo/pkexec；浏览器必须属于发起桌面启动的用户。
+exec xdg-open "$address/"

@@ -1,0 +1,24 @@
+[Unit]
+Description=BKNetwork Ubuntu IPv6 local network controller
+Documentation=https://github.com/tangmuguo/BKNetwork
+Wants=network-online.target
+After=network-online.target NetworkManager.service systemd-resolved.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/bknetwork
+ExecStart=/opt/bknetwork/bknetwork run --no-browser --state-dir /var/lib/bknetwork
+Restart=on-failure
+RestartSec=3s
+KillSignal=SIGTERM
+# Keep systemd responsible for every process started by BKNetwork.
+KillMode=control-group
+TimeoutStopSec=250s
+UMask=0077
+Environment=GOTRACEBACK=all
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target
