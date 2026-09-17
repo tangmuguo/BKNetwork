@@ -269,12 +269,20 @@ type powerShellAdapterBinding struct {
 	Enabled bool   `json:"Enabled"`
 }
 
+func adapterBindingCommand(componentID string) string {
+	return "Get-NetAdapterBinding -ComponentID " + componentID + " -ErrorAction Stop | Select-Object Name,Enabled | ConvertTo-Json -Compress"
+}
+
 func getPowerShellAdapterBinding(ctx context.Context, componentID string) (map[string]bool, error) {
-	script := "Get-NetAdapterBinding -ComponentID " + componentID + " -ErrorAction Stop | Select-Object Name,Enabled | ConvertTo-Json -Compress"
+	script := adapterBindingCommand(componentID)
 	raw, err := execWithTimeout(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	if err != nil && strings.TrimSpace(raw) == "" {
 		return nil, err
 	}
+	return parsePowerShellAdapterBindings(raw)
+}
+
+func parsePowerShellAdapterBindings(raw string) (map[string]bool, error) {
 	bindings, parseErr := decodeJSONList[powerShellAdapterBinding](raw)
 	if parseErr != nil {
 		return nil, parseErr

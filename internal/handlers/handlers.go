@@ -641,14 +641,16 @@ func warpConnectionError(probe warpSnapshot) error {
 }
 
 func WarpStatusHandler() http.HandlerFunc {
+	return warpStatusHandler(execWithTimeout)
+}
+
+func warpStatusHandler(run func(context.Context, string, ...string) (string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, map[string]string{"error": "method not allowed"}, http.StatusMethodNotAllowed)
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeoutShort)
-		defer cancel()
-		probe := probeWarpStatus(ctx)
+		probe := probeWarpPageStatus(r.Context(), run)
 		writeJSON(w, map[string]interface{}{
 			"connected": probe.Connected,
 			"status":    probe.Status,
@@ -767,31 +769,131 @@ func WSHandler(hub *events.Hub) http.HandlerFunc {
 			log.Println("ws upgrade error:", err)
 			return
 		}
-		defer c.Close()
+		serveWebSocket(r.Context(), c, hub, collectNetworkSnapshotContext)
+	}
+}
 
-		sub := hub.Subscribe(8)
-		defer hub.Unsubscribe(sub)
+// websocketEventHub is the small part of events.Hub needed by a connection.
+// Keeping the dependency narrow makes the connection lifecycle testable without
+// invoking the real network probes.
+type websocketEventHub interface {
+	Subscribe(int) chan events.Event
+	Unsubscribe(chan events.Event)
+}
 
-		if err := c.WriteJSON(events.Event{Type: "hello", Message: "connected to BKNetwork"}); err != nil {
-			log.Printf("ws write hello: %v", err)
-			return
-		}
-		snap, snapErr := collectNetworkSnapshot()
-		if snapErr != nil {
-			log.Printf("ws collect snapshot: %v", snapErr)
-		}
-		if err := c.WriteJSON(events.Event{Type: "network.status", Message: "network snapshot", Data: snap}); err != nil {
-			log.Printf("ws write snapshot: %v", err)
-			return
-		}
+type websocketSnapshotCollector func(context.Context) (networkSnapshot, error)
 
+type websocketSnapshotResult struct {
+	snapshot networkSnapshot
+	err      error
+}
+
+// serveWebSocket owns one upgraded connection. Gorilla WebSocket permits one
+// concurrent reader and one concurrent writer, so the read pump is the only
+// goroutine reading from c while this function remains the sole writer. The
+// read pump is necessary even when no events are being published: a closed
+// client must wake the handler so its subscription is removed promptly.
+func serveWebSocket(ctx context.Context, c *websocket.Conn, hub websocketEventHub, collect websocketSnapshotCollector) {
+	const (
+		writeTimeout = 5 * time.Second
+		readTimeout  = 45 * time.Second
+		pingInterval = 15 * time.Second
+	)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sub := hub.Subscribe(8)
+	defer hub.Unsubscribe(sub)
+	defer c.Close()
+
+	readDone := make(chan error, 1)
+	go func() {
+		_ = c.SetReadDeadline(time.Now().Add(readTimeout))
+		c.SetPongHandler(func(string) error {
+			return c.SetReadDeadline(time.Now().Add(readTimeout))
+		})
 		for {
-			event, ok := <-sub
+			// The server does not use client data. NextReader advances through
+			// each message and discards the previous payload without allocating
+			// one complete []byte like ReadMessage does.
+			if _, _, err := c.NextReader(); err != nil {
+				readDone <- err
+				return
+			}
+		}
+	}()
+
+	writeJSON := func(value interface{}) error {
+		if err := c.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+			return err
+		}
+		return c.WriteJSON(value)
+	}
+	writePing := func() error {
+		return c.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeTimeout))
+	}
+
+	if err := writeJSON(events.Event{Type: "hello", Message: "connected to BKNetwork"}); err != nil {
+		log.Printf("ws write hello: %v", err)
+		return
+	}
+
+	snapshotDone := make(chan websocketSnapshotResult, 1)
+	go func() {
+		snapshot, err := collect(ctx)
+		snapshotDone <- websocketSnapshotResult{snapshot: snapshot, err: err}
+	}()
+
+	// Keep the connection liveness checks active while the first snapshot is
+	// being collected. The collector wait is context-aware; a disconnect
+	// cancels this connection's wait while a shared underlying collection may
+	// continue serving other requests.
+	var snapshot websocketSnapshotResult
+	pingTicker := time.NewTicker(pingInterval)
+	defer pingTicker.Stop()
+	for {
+		select {
+		case snapshot = <-snapshotDone:
+			goto snapshotReady
+		case <-readDone:
+			return
+		case <-ctx.Done():
+			return
+		case <-pingTicker.C:
+			if err := writePing(); err != nil {
+				log.Printf("ws ping: %v", err)
+				return
+			}
+		}
+	}
+
+snapshotReady:
+	if snapshot.err != nil {
+		log.Printf("ws collect snapshot: %v", snapshot.err)
+	}
+	if err := writeJSON(events.Event{Type: "network.status", Message: "network snapshot", Data: snapshot.snapshot}); err != nil {
+		log.Printf("ws write snapshot: %v", err)
+		return
+	}
+
+	for {
+		select {
+		case <-readDone:
+			return
+		case <-ctx.Done():
+			return
+		case event, ok := <-sub:
 			if !ok {
 				return
 			}
-			if err := c.WriteJSON(event); err != nil {
-				log.Println("ws write error:", err)
+			if err := writeJSON(event); err != nil {
+				log.Printf("ws write event: %v", err)
+				return
+			}
+		case <-pingTicker.C:
+			if err := writePing(); err != nil {
+				log.Printf("ws ping: %v", err)
 				return
 			}
 		}
@@ -810,7 +912,7 @@ func StatusHandler(hub *events.Hub) http.HandlerFunc {
 		if adminErr != nil {
 			adminErrMsg = adminErr.Error()
 		}
-		network, _ := collectNetworkSnapshot()
+		network, _ := collectNetworkSnapshotContext(r.Context())
 		writeJSON(w, map[string]interface{}{
 			"service": map[string]interface{}{
 				"name":    appinfo.Name,

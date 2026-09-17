@@ -54,7 +54,10 @@ func listProcesses() ([]Process, error) {
 
 	var result []Process
 	for {
-		if strings.EqualFold(windows.UTF16ToString(entry.ExeFile[:]), quotaFloatExecutable) {
+		// ProcessEntry32.ExeFile is a fixed-size UTF-16 buffer. Compare it
+		// directly so routine 3-second discovery does not allocate a Go string
+		// for every process on the machine.
+		if isQuotaFloatExecutableName(entry.ExeFile[:]) {
 			if process, ok := inspectCandidate(entry.ProcessID, sessionID, currentSID); ok {
 				result = append(result, process)
 			}
@@ -92,14 +95,46 @@ func inspectCandidate(pid, expectedSession uint32, expectedSID *windows.SID) (Pr
 	}
 	defer windows.CloseHandle(processHandle)
 
-	process, sid, session, err := inspectProcessHandle(processHandle)
-	if err != nil || session != expectedSession || !sid.Equals(expectedSID) {
+	// The snapshot name is only a hint: a PID may be reused between the
+	// snapshot and handle open. Verify the current handle's path before the
+	// more expensive start-time, session and token queries.
+	path, err := queryProcessPath(processHandle)
+	if err != nil || !isQuotaFloatPath(path) {
 		return Process{}, false
 	}
-	if !isQuotaFloatPath(process.Path) {
+	started, err := queryProcessStartTime(processHandle)
+	if err != nil {
 		return Process{}, false
 	}
-	return process, true
+	session, err := processSessionID(processHandle)
+	if err != nil || session != expectedSession {
+		return Process{}, false
+	}
+	sid, err := processUserSID(processHandle)
+	if err != nil || !sid.Equals(expectedSID) {
+		return Process{}, false
+	}
+	return Process{PID: pid, Started: started, Path: path}, true
+}
+
+// isQuotaFloatExecutableName compares the ASCII target name with a fixed-size
+// UTF-16 process entry without allocating. The target contains only ASCII
+// letters, so Windows' case-insensitive comparison has the same result as
+// folding the ASCII code units here.
+func isQuotaFloatExecutableName(name []uint16) bool {
+	for i := 0; i < len(quotaFloatExecutable); i++ {
+		if i >= len(name) || name[i] == 0 {
+			return false
+		}
+		character := name[i]
+		if character >= 'A' && character <= 'Z' {
+			character += 'a' - 'A'
+		}
+		if character != uint16(quotaFloatExecutable[i]) {
+			return false
+		}
+	}
+	return len(name) > len(quotaFloatExecutable) && name[len(quotaFloatExecutable)] == 0
 }
 
 // restartProcess performs a create-verify-switch transaction. In particular,

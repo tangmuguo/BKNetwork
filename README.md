@@ -33,6 +33,20 @@ BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关�
 
 关闭分流或从托盘正常退出 BKNetwork，会重新启动本次已适配且仍在运行的 quota-float，恢复该 Windows 用户的默认环境。恢复失败会重试一次；若仍失败，保留原实例并在卡片或日志提示完全退出、重新打开 quota-float，避免误报恢复成功。环境来自原用户的 Windows 环境配置；若需要自定义 `CODEX_HOME`，应配置为用户环境变量，而不是仅在某个启动终端中临时设置。适配用于交互式桌面会话，Windows 服务不会跨会话接管其他用户的额度工具。若代理适配成功后仍显示未登录，应再检查 Codex 自身登录状态；BKNetwork 不刷新或替换登录令牌。
 
+## v2.0.2 资源占用与状态响应优化
+
+本版保留现有开关、状态刷新周期、免流判定、路由保护和失败恢复流程，减少重复采集及后台资源开销：
+
+- 完整快照将网卡信息、IPv4 和 IPv6 协议绑定合并到一次 PowerShell 调用，正常情况下从 3 个进程减少到 1 个；查询失败时仍回退到原有独立查询。
+- 同时到达的 HTTP / WebSocket 状态请求共用在途采集，完成后不缓存；网络操作前后隔离在途结果，下一次刷新重新读取当前状态。
+- 网页刷新合并重叠请求，并避免相同内容的重复渲染；WebSocket 断开后及时释放后台连接和事件订阅。
+- quota-float 维持约 3 秒的发现周期；进程名直接使用 UTF-16 缓冲匹配，减少遍历系统进程时的临时字符串分配，仍逐个校验候选进程的身份和会话。
+- WARP 连接成功仍要求“已连接 + IPv6 外层校验通过”连续满足，稳定窗口由 8 秒改为 5 秒；终态失败宽限由 4 秒改为 1 秒，Connecting / Checking / Configuring 继续等待，断开稳定窗口由 750 毫秒改为 500 毫秒。
+- 页面快照中的 WARP status 和 `/api/v1/warp-status` 共用专用 4 秒读取超时；查询失败、超时或未返回有效状态时，页面保留上一份有效 WARP 状态，等后续成功读取再更新。
+- 外部 IPv6 地址查询单次超时由 5 秒改为 2 秒，重试次数不变。
+
+IPv6 外层等待仍为 12 秒、协议切换 18 秒、单轮 WARP 连接 24 秒、家庭 WireGuard 30 秒 / 15 秒；通用超时、重试次数、路由校验和协议回退逻辑保持不变。进程调用次数的减少不等同于整机 CPU 或内存的同比降幅，实际改善取决于打开的页面数量、操作频率及 WARP 等外部程序。
+
 ## Q&A
 
 1. 免流模式真的能实现免流吗？
@@ -85,7 +99,7 @@ cd BKNetwork
 
 或右键使用 powershell 运行。
 
-`releases/bknetwork-v2.0.1/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
+`releases/bknetwork-v2.0.2/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
 
 在非 Windows 平台上交叉编译 Windows x64 二进制文件：
 
@@ -118,7 +132,7 @@ GOOS=windows GOARCH=amd64 go build -o bknetwork.exe ./cmd/bknetwork
 
 **常见问题与排查**
 
-- 首次打开页面状态加载慢：服务在采集网络快照时会调用若干 PowerShell 和外部命令（如 `warp-cli`），可能耗时。建议在疑难排查时直接在服务器主机上运行 `go run ./cmd/bknetwork` 并观察输出日志。
+- 首次打开页面状态加载慢：服务会合并重复的网络快照请求，并批量读取网卡信息；外部命令（如 `warp-cli`）或系统网络查询仍可能耗时。可查看 `%APPDATA%\BKNetwork\bknetwork.log`；需要调试时，请先退出当前实例，再运行 `go run ./cmd/bknetwork`。
 - `warp-cli not found`：如果未安装 Cloudflare WARP 客户端，`/api/v1/warp` 会返回错误并在日志中给出提示。安装后确保 `warp-cli` 在 PATH 中可访问。
 - 权限不足：修改网卡绑定等操作需要管理员权限，若在非管理员上下文运行会收到 403 或相应错误信息。
 
@@ -130,6 +144,17 @@ GOOS=windows GOARCH=amd64 go build -o bknetwork.exe ./cmd/bknetwork
 cd BKNetwork
 go test ./...
 ```
+
+性能优化的离线回归可使用以下命令（不会启动 BKNetwork 主程序）：
+
+```powershell
+go test -race -p 2 -skip '^TestRestartProcess' ./...
+go vet ./...
+node --check web/app.js
+node --test scripts/app.test.cjs
+```
+
+这里跳过会构建、启动临时进程的 `TestRestartProcess*` 集成测试；其余 Go 测试使用隔离资源，前端测试模拟网络请求及 DOM。完整 `go test ./...` 仍可按需运行临时进程的权限与恢复验证。
 
 **目录结构（相关）**
 

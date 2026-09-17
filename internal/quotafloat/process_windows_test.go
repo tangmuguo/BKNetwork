@@ -60,6 +60,59 @@ func TestQuotaFloatPathRequiresExactExecutableName(t *testing.T) {
 	}
 }
 
+func TestQuotaFloatExecutableNameMatchesFixedUTF16Buffer(t *testing.T) {
+	for _, name := range []string{"quota-float.exe", "QUOTA-FLOAT.EXE", "QuOtA-fLoAt.ExE"} {
+		encoded, err := windows.UTF16FromString(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buffer := make([]uint16, 260)
+		copy(buffer, encoded)
+		if !isQuotaFloatExecutableName(buffer) {
+			t.Fatalf("did not match %q", name)
+		}
+	}
+	for _, name := range []string{"quota-float.exe.bak", "quota-float.ex", "quota_float.exe", "quota-float.exe😀"} {
+		encoded, err := windows.UTF16FromString(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buffer := make([]uint16, 260)
+		copy(buffer, encoded)
+		if isQuotaFloatExecutableName(buffer) {
+			t.Fatalf("accepted %q", name)
+		}
+	}
+}
+
+// BenchmarkQuotaFloatExecutableName compares the allocation-free matcher with
+// the previous UTF-16-to-string path using a synthetic process-entry buffer.
+func BenchmarkQuotaFloatExecutableName(b *testing.B) {
+	encoded, err := windows.UTF16FromString(quotaFloatExecutable)
+	if err != nil {
+		b.Fatal(err)
+	}
+	buffer := make([]uint16, 260)
+	copy(buffer, encoded)
+
+	b.Run("direct_utf16", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if !isQuotaFloatExecutableName(buffer) {
+				b.Fatal("direct matcher rejected quota-float.exe")
+			}
+		}
+	})
+	b.Run("UTF16ToString_EqualFold", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if !strings.EqualFold(windows.UTF16ToString(buffer), quotaFloatExecutable) {
+				b.Fatal("legacy matcher rejected quota-float.exe")
+			}
+		}
+	})
+}
+
 // This test builds a GUI helper in a temporary directory and calls
 // restartProcess directly. It never calls listProcesses or Manager, so a
 // user's real quota-float process cannot be selected by the test.

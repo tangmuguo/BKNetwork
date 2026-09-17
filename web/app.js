@@ -76,6 +76,36 @@ const fastStatusRefreshState = {
   stopTimerId: null,
   activeUntil: 0,
 };
+const statusRefreshState = {
+  promise: null,
+  followUpPromise: null,
+};
+const homeNetworkRefreshState = {
+  promise: null,
+  followUpPromise: null,
+};
+const trafficRefreshState = {
+  promise: null,
+};
+const ipv6CheckState = {
+  promise: null,
+  followUpPromise: null,
+};
+const chatGPTClashRefreshState = {
+  promise: null,
+  mutationVersion: 0,
+};
+const targetAdapterRenderState = {
+  optionsKey: null,
+  selected: '',
+};
+const networkRenderState = {
+  key: null,
+};
+const websocketState = {
+  socket: null,
+  reconnectTimerId: null,
+};
 const pendingToggleState = {
   warp: null,
   easyMode: null,
@@ -331,13 +361,60 @@ function setAdvancedMode(enabled) {
 }
 
 function setDot(dotEl, tone) {
-  if (dotEl) dotEl.className = `dot ${tone || ''}`.trim();
+  if (!dotEl) {
+    return;
+  }
+  const className = `dot ${tone || ''}`.trim();
+  if (dotEl.className !== className) {
+    dotEl.className = className;
+  }
 }
 
 function setText(el, value) {
   if (el) {
-    el.textContent = value;
+    const text = value == null ? '' : String(value);
+    if (el.textContent !== text) {
+      el.textContent = text;
+    }
   }
+}
+
+function coalesceRequest(state, factory, force = false) {
+  if (state.promise) {
+    if (!force) {
+      return state.promise;
+    }
+    if (state.followUpPromise) {
+      return state.followUpPromise;
+    }
+
+    const current = state.promise;
+    const startFollowUp = () => {
+      state.followUpPromise = null;
+      if (state.promise === current) {
+        state.promise = null;
+      }
+      return coalesceRequest(state, factory, true);
+    };
+    state.followUpPromise = current.then(startFollowUp, startFollowUp);
+    return state.followUpPromise;
+  }
+
+  const request = Promise.resolve().then(() => factory(force));
+  state.promise = request;
+  request.then(
+    () => {
+      if (state.promise === request) {
+        state.promise = null;
+      }
+    },
+    () => {
+      if (state.promise === request) {
+        state.promise = null;
+      }
+    },
+  );
+  return request;
 }
 
 function setSettingsStatus(value) {
@@ -542,13 +619,18 @@ function updateChatGPTClashState(snapshot) {
   syncChatGPTClashControls();
 }
 
-async function refreshChatGPTClashState() {
-  const res = await fetch('/api/v1/chatgpt-proxy', { cache: 'no-store' });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.detail || data.error || '无法读取 ChatGPT 分流状态');
-  }
-  updateChatGPTClashState(data);
+function refreshChatGPTClashState() {
+  const requestVersion = chatGPTClashRefreshState.mutationVersion;
+  return coalesceRequest(chatGPTClashRefreshState, async () => {
+    const res = await fetch('/api/v1/chatgpt-proxy', { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.error || '无法读取 ChatGPT 分流状态');
+    }
+    if (chatGPTClashRefreshState.mutationVersion === requestVersion) {
+      updateChatGPTClashState(data);
+    }
+  });
 }
 
 async function applyChatGPTClash(enabled) {
@@ -558,6 +640,7 @@ async function applyChatGPTClash(enabled) {
   }
   const previous = { ...chatGPTClashState };
   const requestedAddress = clashProxyAddressEl?.value || chatGPTClashState.proxyAddress;
+  chatGPTClashRefreshState.mutationVersion += 1;
   chatGPTClashState.pending = true;
   chatGPTClashState.enabled = !!enabled;
   syncChatGPTClashControls();
@@ -934,7 +1017,7 @@ function delay(ms) {
 
 async function fetchIpv6AddressOnce() {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 2000);
   try {
     const res = await fetch('https://api-ipv6.ip.sb/ip', {
       method: 'GET',
@@ -954,7 +1037,7 @@ async function fetchIpv6AddressOnce() {
   }
 }
 
-async function checkIpv6Address() {
+async function performIpv6AddressCheck() {
   const initialEvidence = getNetworkIpv6Evidence();
   if (initialEvidence.verified) {
     setIpv6CheckStatus('ok', initialEvidence.text);
@@ -994,6 +1077,10 @@ async function checkIpv6Address() {
   return null;
 }
 
+function checkIpv6Address(force = false) {
+  return coalesceRequest(ipv6CheckState, performIpv6AddressCheck, force);
+}
+
 function syncStackModeState(network) {
   const adapter = getSelectedAdapter(network);
   const mode = getAdapterMode(adapter);
@@ -1017,8 +1104,32 @@ function syncStackModeState(network) {
 let warpConnected = false;
 let warpStatusText_ = '';
 
+function isWarpStatusValue(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function isValidWarpStatus(status) {
+  if (!status || typeof status !== 'object' || status.error || typeof status.connected !== 'boolean') {
+    return false;
+  }
+  return isWarpStatusValue(status.status);
+}
+
+function getNetworkWithValidWarpStatus(network) {
+  if (!network || typeof network !== 'object' || Array.isArray(network)) {
+    return latestNetwork;
+  }
+  if (isValidWarpStatus(network.warp)) {
+    return network;
+  }
+  if (isValidWarpStatus(latestNetwork?.warp)) {
+    return { ...network, warp: latestNetwork.warp };
+  }
+  return network;
+}
+
 function syncWarpConnectionFromNetwork(network) {
-  if (!network?.warp || network.warp.error) {
+  if (!isValidWarpStatus(network?.warp)) {
     return;
   }
   warpConnected = !!network.warp.connected;
@@ -1035,24 +1146,20 @@ function startWarpStatusPoll() {
     try {
       const res = await fetch('/api/v1/warp-status', { cache: 'no-store' });
       const data = await res.json();
-      if (data.error) {
-        throw new Error(data.error);
+      if (!res.ok || !isValidWarpStatus(data)) {
+        throw new Error(data?.error || 'WARP 状态无效');
       }
       const changed = warpConnected !== !!data.connected;
       warpConnected = !!data.connected;
       warpStatusText_ = data.status || data.reason || '';
-      if (latestNetwork?.warp) {
-        latestNetwork = {
-          ...latestNetwork,
-          warp: { ...latestNetwork.warp, connected: warpConnected, status: data.status, reason: data.reason },
-        };
-      }
+      const nextWarp = { ...latestNetwork?.warp, ...data };
+      delete nextWarp.error;
+      latestNetwork = { ...latestNetwork, warp: nextWarp };
+      syncWarpState();
+      syncEasyModeState(latestNetwork);
+      updateFreeFlowBadge();
       if (changed) {
         await refreshStatus(true);
-      } else {
-        syncWarpState();
-        syncEasyModeState(latestNetwork);
-        updateFreeFlowBadge();
       }
     } catch (err) {
       console.error('WARP 状态轮询失败:', err);
@@ -1152,7 +1259,9 @@ function renderHomeTunnelSelect() {
     }
     homeTunnelSelectEl.dataset.homeProfilesKey = optionKey;
   }
-  homeTunnelSelectEl.value = selectedName;
+  if (homeTunnelSelectEl.value !== selectedName) {
+    homeTunnelSelectEl.value = selectedName;
+  }
 }
 
 function syncHomeNetworkState(network) {
@@ -1216,24 +1325,26 @@ function syncHomeNetworkState(network) {
   setText(homeNetworkStateEl, '当前关闭');
 }
 
-async function loadHomeNetwork() {
-  const res = await fetch('/api/v1/home-network', { cache: 'no-store' });
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    throw new Error(data.detail || data.error || 'request failed');
-  }
-  homeNetworkState.profiles = Array.isArray(data.profiles)
-    ? data.profiles.filter(profile => typeof profile === 'string' && profile.trim() !== '')
-    : [];
-  homeNetworkState.profilesError = typeof data.profilesError === 'string' ? data.profilesError : '';
-  updateHomeNetworkStatus(data.status, data.tunnelName);
-  if (latestNetwork) {
-    latestNetwork = { ...latestNetwork, homeNetwork: homeNetworkState.status || {} };
-  }
-  syncHomeNetworkState(latestNetwork);
-  syncEasyModeState(latestNetwork);
-  updateFreeFlowBadge();
-  return data;
+function loadHomeNetwork(force = false) {
+  return coalesceRequest(homeNetworkRefreshState, async () => {
+    const res = await fetch('/api/v1/home-network', { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.detail || data.error || 'request failed');
+    }
+    homeNetworkState.profiles = Array.isArray(data.profiles)
+      ? data.profiles.filter(profile => typeof profile === 'string' && profile.trim() !== '')
+      : [];
+    homeNetworkState.profilesError = typeof data.profilesError === 'string' ? data.profilesError : '';
+    updateHomeNetworkStatus(data.status, data.tunnelName);
+    if (latestNetwork) {
+      latestNetwork = { ...latestNetwork, homeNetwork: homeNetworkState.status || {} };
+    }
+    syncHomeNetworkState(latestNetwork);
+    syncEasyModeState(latestNetwork);
+    updateFreeFlowBadge();
+    return data;
+  }, force);
 }
 
 function startHomeNetworkStatusPoll() {
@@ -1348,40 +1459,51 @@ function syncTargetAdapterSelects(names, network) {
     ? [activeInterface, stored, current, recommended]
     : [stored, current, recommended];
   const desired = candidates.find(name => options.includes(name)) || options[0] || 'WiFi';
+  const optionsKey = options.join('\u0000');
+  const optionsChanged = targetAdapterRenderState.optionsKey !== optionsKey;
 
-  for (const select of targetAdapterSelects) {
-    if (!select) continue;
-    const previous = select.value;
-    select.innerHTML = '';
-    if (options.length === 0) {
-      const option = document.createElement('option');
-      option.value = 'WiFi';
-      option.textContent = 'WiFi';
-      select.appendChild(option);
-      continue;
+  if (optionsChanged) {
+    for (const select of targetAdapterSelects) {
+      if (!select) continue;
+      const previous = select.value;
+      select.innerHTML = '';
+      if (options.length === 0) {
+        const option = document.createElement('option');
+        option.value = 'WiFi';
+        option.textContent = 'WiFi';
+        select.appendChild(option);
+        continue;
+      }
+      for (const name of options) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+      }
+      select.value = options.includes(previous) ? previous : desired;
     }
-    for (const name of options) {
-      const option = document.createElement('option');
-      option.value = name;
-      option.textContent = name;
-      select.appendChild(option);
-    }
-    select.value = options.includes(previous) ? previous : desired;
+    targetAdapterRenderState.optionsKey = optionsKey;
   }
 
   const selected = options.includes(desired) ? desired : (options[0] || 'WiFi');
-  setTargetAdapter(selected, true);
+  const selectionChanged = targetAdapterRenderState.selected !== selected
+    || targetAdapterSelects.some(select => select && select.value !== selected);
+  if (selectionChanged) {
+    setTargetAdapter(selected, true);
+    targetAdapterRenderState.selected = selected;
+  }
 }
 
 function renderStatus(data, force = false) {
-  syncWarpConnectionFromNetwork(data?.network);
-  syncTargetAdapterSelects(getAdapterOptions(data?.network), data?.network);
-  syncWarpSettingsState(data?.network);
-  renderNetwork(data?.network);
-  syncHomeNetworkState(data?.network);
-  syncIpv6CheckFromNetwork(data?.network);
-  updateStatusBadges(data?.network, force);
-  syncDnsEditor(data?.network, force);
+  const network = getNetworkWithValidWarpStatus(data?.network);
+  syncWarpConnectionFromNetwork(network);
+  syncTargetAdapterSelects(getAdapterOptions(network), network);
+  syncWarpSettingsState(network);
+  renderNetwork(network);
+  syncHomeNetworkState(network);
+  syncIpv6CheckFromNetwork(network);
+  updateStatusBadges(network, force);
+  syncDnsEditor(network, force);
 }
 
 function fmtIPList(arr) {
@@ -1475,16 +1597,38 @@ function loadTrafficUsage() {
 }
 
 function refreshTrafficUsage() {
-  return loadTrafficUsage()
+  return coalesceRequest(trafficRefreshState, () => loadTrafficUsage()
     .then((payload) => {
       renderTrafficUsage(payload);
       return payload;
     })
-    .catch(err => console.error('操作失败:', err));
+    .catch(err => console.error('操作失败:', err)));
+}
+
+function getNetworkRenderKey(network) {
+  const adapters = Array.isArray(network?.adapters) ? network.adapters : [];
+  return JSON.stringify(adapters.map(adapter => [
+    adapter?.name || '',
+    adapter?.status || '',
+    adapter?.description || '',
+    adapter?.macAddress || '',
+    adapter?.ipv4Gateway || '',
+    adapter?.ipv6Gateway || '',
+    Array.isArray(adapter?.dns) ? adapter.dns : [],
+    !!adapter?.ipv4Enabled,
+    !!adapter?.ipv6Enabled,
+    Array.isArray(adapter?.ipv4) ? adapter.ipv4 : [],
+    Array.isArray(adapter?.ipv6) ? adapter.ipv6 : [],
+  ]));
 }
 
 function renderNetwork(network) {
   latestNetwork = network;
+  const renderKey = getNetworkRenderKey(network);
+  if (networkRenderState.key === renderKey) {
+    return;
+  }
+  networkRenderState.key = renderKey;
   adapterListEl.innerHTML = '';
   const adapters = network?.adapters;
   if (!Array.isArray(adapters) || adapters.length === 0) {
@@ -1495,6 +1639,7 @@ function renderNetwork(network) {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   for (const adapter of adapters) {
     const card = document.createElement('article');
     card.className = 'adapter-card';
@@ -1515,8 +1660,9 @@ function renderNetwork(network) {
       <div class="ip-block">IPv4\n${escapeHTML(adapter.ipv4Enabled ? fmtIPList(adapter.ipv4) : '协议绑定已关闭（旧地址可能暂留）')}</div>
       <div class="ip-block">IPv6\n${escapeHTML(adapter.ipv6Enabled ? fmtIPList(adapter.ipv6) : '协议绑定已关闭')}</div>
     `;
-    adapterListEl.appendChild(card);
+    fragment.appendChild(card);
   }
+  adapterListEl.appendChild(fragment);
 }
 
 function updateStatusBadges(network, force = false) {
@@ -1526,22 +1672,31 @@ function updateStatusBadges(network, force = false) {
   syncEasyModeState(network);
 }
 
-async function refreshStatus(force = false) {
-  try {
-    const res = await fetch('/api/v1/status', { cache: 'no-store' });
-    const data = await res.json();
-    renderStatus(data, force);
-    appendLog('状态已刷新');
-  } catch (err) {
-    appendLog(`状态刷新失败：${err.message}`);
-  }
+function refreshStatus(force = false) {
+  return coalesceRequest(statusRefreshState, async (requestForce) => {
+    try {
+      const res = await fetch('/api/v1/status', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.detail || data?.error || `HTTP ${res.status || 'error'}`);
+      }
+      renderStatus(data, requestForce);
+      appendLog('状态已刷新');
+      return data;
+    } catch (err) {
+      appendLog(`状态刷新失败：${err.message}`);
+      return null;
+    }
+  }, force);
 }
 
 async function checkAdminStatus() {
   setAdminBadge('warn', '管理员权限检查中');
   try {
-    const res = await fetch('/api/v1/status', { cache: 'no-store' });
-    const data = await res.json();
+    const data = await refreshStatus(false);
+    if (!data) {
+      throw new Error('无法读取状态');
+    }
     if (data.adminError) {
       throw new Error(data.adminError);
     }
@@ -1636,7 +1791,7 @@ async function applyWarpToggle(enabled) {
     await postActionSilently('/api/v1/warp', { action: enabled ? 'start' : 'stop', ifName: currentIfName() });
     succeeded = true;
     if (enabled) {
-      checkIpv6Address().catch(err => console.error('操作失败:', err));
+      checkIpv6Address(true).catch(err => console.error('操作失败:', err));
     }
   } catch (err) {
     clearPendingToggle('warp');
@@ -1761,7 +1916,7 @@ async function applyHomeNetwork(enabled) {
       // refreshStatus currently reports failures in the operation log.
     }
     try {
-      await loadHomeNetwork();
+      await loadHomeNetwork(true);
     } catch (err) {
       console.error('家庭 WireGuard 状态刷新失败:', err);
       syncHomeNetworkState(latestNetwork);
@@ -1775,16 +1930,37 @@ async function applyHomeNetwork(enabled) {
 let lastNetworkCollectedAt = '';
 let lastSwitchTime = 0;
 
+function scheduleWSReconnect() {
+  if (websocketState.reconnectTimerId !== null) {
+    return;
+  }
+  websocketState.reconnectTimerId = window.setTimeout(() => {
+    websocketState.reconnectTimerId = null;
+    connectWS();
+  }, 2000);
+}
+
 function connectWS() {
+  const existing = websocketState.socket;
+  if (existing && (existing.readyState === WebSocket.CONNECTING || existing.readyState === WebSocket.OPEN)) {
+    return existing;
+  }
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${scheme}://${location.host}/ws`);
+  websocketState.socket = ws;
 
   ws.addEventListener('open', () => {
+    if (websocketState.socket !== ws) {
+      return;
+    }
     setBackendBadge('ok');
     appendLog('WebSocket 已连接');
   });
 
   ws.addEventListener('message', (event) => {
+    if (websocketState.socket !== ws) {
+      return;
+    }
     try {
       const data = JSON.parse(event.data);
       setBackendBadge(data.type === 'heartbeat' || data.type === 'hello' || data.type === 'network.status' ? 'ok' : (data.type === 'error' ? 'err' : 'ok'));
@@ -1845,14 +2021,22 @@ function connectWS() {
   });
 
   ws.addEventListener('close', () => {
+    if (websocketState.socket !== ws) {
+      return;
+    }
+    websocketState.socket = null;
     setBackendBadge('err');
     appendLog('WebSocket 已断开，准备重连');
-    setTimeout(connectWS, 2000);
+    scheduleWSReconnect();
   });
 
   ws.addEventListener('error', () => {
+    if (websocketState.socket !== ws) {
+      return;
+    }
     setBackendBadge('warn');
   });
+  return ws;
 }
 
 if (advancedModeToggleEl) {
@@ -1882,7 +2066,7 @@ if (homeNetworkRefreshBtnEl) {
   homeNetworkRefreshBtnEl.addEventListener('click', async () => {
     homeNetworkRefreshBtnEl.disabled = true;
     try {
-      await loadHomeNetwork();
+      await loadHomeNetwork(true);
       appendLog('家庭 WireGuard 配置已刷新');
     } catch (err) {
       appendLog(`家庭 WireGuard 配置刷新失败：${err.message}`);
@@ -1926,7 +2110,7 @@ if (settingsOpenBtn) {
 
 if (ipv6RefreshBtnEl) {
   ipv6RefreshBtnEl.addEventListener('click', () => {
-    checkIpv6Address().catch(err => console.error('操作失败:', err));
+    checkIpv6Address(true).catch(err => console.error('操作失败:', err));
   });
 }
 

@@ -14,12 +14,18 @@ import (
 var errUnknownWarpAction = errors.New("unknown warp action")
 
 func probeWarpStatus(ctx context.Context) warpSnapshot {
-	result := warpSnapshot{CheckedAt: time.Now().Format(time.RFC3339)}
 	out, err := execWithTimeout(ctx, "warp-cli", "--json", "status")
-	result.Raw = strings.TrimSpace(out)
+	result := parseWarpStatus(out)
 	if err != nil && result.Raw == "" {
 		result.Error = err.Error()
-		return result
+	}
+	return result
+}
+
+func parseWarpStatus(raw string) warpSnapshot {
+	result := warpSnapshot{
+		CheckedAt: time.Now().Format(time.RFC3339),
+		Raw:       strings.TrimSpace(raw),
 	}
 	if status, reason, ok := parseWarpJSONStatus(result.Raw); ok {
 		result.Status = status
@@ -299,9 +305,9 @@ func probeWarpPreflight(ctx context.Context, ifName string) warpPreflightSnapsho
 	return result
 }
 
-const warpConnectedStableFor = 8 * time.Second
-const warpTerminalFailureGrace = 4 * time.Second
-const warpDisconnectedStableFor = 750 * time.Millisecond
+const warpConnectedStableFor = 5 * time.Second
+const warpTerminalFailureGrace = 1 * time.Second
+const warpDisconnectedStableFor = 500 * time.Millisecond
 
 type warpConnectionStability struct {
 	connectedSince time.Time
@@ -486,6 +492,8 @@ func setWarpTunnelProtocolVerified(ctx context.Context, protocol string) (string
 }
 
 func StartWarp() error {
+	networkSnapshots.invalidate()
+	defer networkSnapshots.invalidate()
 	if _, err := exec.LookPath("warp-cli"); err != nil {
 		return err
 	}

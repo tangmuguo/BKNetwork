@@ -158,37 +158,72 @@ func TestEvaluateWarpIPv6Underlay(t *testing.T) {
 }
 
 func TestWarpStatusIsTerminalFailure(t *testing.T) {
-	if !warpStatusIsTerminalFailure(warpSnapshot{Status: "Disconnected", Reason: "NoNetwork"}) {
-		t.Fatal("NoNetwork should be treated as a terminal connection failure")
+	tests := []struct {
+		name     string
+		snapshot warpSnapshot
+		want     bool
+	}{
+		{name: "no network", snapshot: warpSnapshot{Status: "Disconnected", Reason: "NoNetwork"}, want: true},
+		{name: "manual disconnect", snapshot: warpSnapshot{Status: "Disconnected", Reason: "Manual"}},
+		{name: "plain disconnect", snapshot: warpSnapshot{Status: "Disconnected"}},
+		{name: "unable", snapshot: warpSnapshot{Status: "Unable", Reason: "CF_HAPPY_EYEBALLS_MITM_FAILURE"}, want: true},
+		{name: "failed", snapshot: warpSnapshot{Status: "Failed"}, want: true},
+		{name: "error", snapshot: warpSnapshot{Status: "Error"}, want: true},
+		{name: "connecting", snapshot: warpSnapshot{Status: "Connecting", Reason: "HappyEyeballs"}},
+		{name: "checking with failure reason", snapshot: warpSnapshot{Status: "Checking", Reason: "CF_HAPPY_EYEBALLS_MITM_FAILURE"}},
+		{name: "configuring with error", snapshot: warpSnapshot{Status: "Configuring", Reason: "SettingsChanged", Error: "previous query failed"}},
+		{name: "normalized in progress", snapshot: warpSnapshot{Status: "  CHECKING; ", Reason: "NoNetwork"}},
 	}
-	if warpStatusIsTerminalFailure(warpSnapshot{Status: "Disconnected", Reason: "Manual"}) {
-		t.Fatal("Manual disconnection should not be treated as a terminal connection failure during the grace period")
-	}
-	if !warpStatusIsTerminalFailure(warpSnapshot{Status: "Unable", Reason: "CF_HAPPY_EYEBALLS_MITM_FAILURE"}) {
-		t.Fatal("Happy Eyeballs MITM failure should end the current round so the orchestrator can retry")
-	}
-	if warpStatusIsTerminalFailure(warpSnapshot{Status: "Connecting", Reason: "HappyEyeballs"}) {
-		t.Fatal("an in-progress Happy Eyeballs check must not end the current round")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := warpStatusIsTerminalFailure(tc.snapshot); got != tc.want {
+				t.Fatalf("warpStatusIsTerminalFailure(%+v) = %v; want %v", tc.snapshot, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestWarpConnectionStability(t *testing.T) {
 	start := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	tracker := warpConnectionStability{}
+	connected := warpSnapshot{Connected: true, Status: "Connected", Underlay: &warpUnderlaySnapshot{OK: true}}
 
-	if tracker.observe(warpSnapshot{Connected: true}, start) {
+	if tracker.observe(connected, start) {
 		t.Fatal("a fresh Connected status must not be accepted immediately")
 	}
-	if tracker.observe(warpSnapshot{Connected: true}, start.Add(warpConnectedStableFor-time.Millisecond)) {
-		t.Fatal("connection should not be accepted before the stability window")
+	if tracker.observe(connected, start.Add(5*time.Second-time.Millisecond)) {
+		t.Fatal("connection should not be accepted before five continuous seconds")
 	}
-	if !tracker.observe(warpSnapshot{Connected: true}, start.Add(warpConnectedStableFor)) {
-		t.Fatal("connection should be accepted after the full stability window")
+	if !tracker.observe(connected, start.Add(5*time.Second)) {
+		t.Fatal("connection should be accepted after five continuous seconds")
 	}
 
-	tracker.observe(warpSnapshot{Connected: false}, start.Add(warpConnectedStableFor+time.Second))
-	if tracker.observe(warpSnapshot{Connected: true}, start.Add(warpConnectedStableFor+2*time.Second)) {
-		t.Fatal("a disconnect must reset the stability window")
+	interruptions := []struct {
+		name     string
+		snapshot warpSnapshot
+	}{
+		{name: "disconnect", snapshot: warpSnapshot{Status: "Disconnected"}},
+		{name: "checking", snapshot: warpSnapshot{Status: "Checking"}},
+		// waitForWarpConnected clears Connected when the IPv6 underlay fails.
+		{name: "IPv6 underlay failure", snapshot: warpSnapshot{Status: "Connected", Underlay: &warpUnderlaySnapshot{OK: false}}},
+	}
+	for _, tc := range interruptions {
+		t.Run(tc.name, func(t *testing.T) {
+			tracker := warpConnectionStability{}
+			tracker.observe(connected, start)
+			if tracker.observe(tc.snapshot, start.Add(4*time.Second)) {
+				t.Fatal("an interruption must not count as a stable connection")
+			}
+			if tracker.observe(connected, start.Add(5*time.Second)) {
+				t.Fatal("the stability window must restart after an interruption")
+			}
+			if tracker.observe(connected, start.Add(10*time.Second-time.Millisecond)) {
+				t.Fatal("the new connection must last five full continuous seconds")
+			}
+			if !tracker.observe(connected, start.Add(10*time.Second)) {
+				t.Fatal("the new stability window should complete after five seconds")
+			}
+		})
 	}
 }
 
