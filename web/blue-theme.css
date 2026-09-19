@@ -627,7 +627,7 @@ h1 {
 
 .resource-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   margin-top: 14px;
   overflow: hidden;
   border: 1px solid #c9dcf2;
@@ -645,10 +645,6 @@ h1 {
   gap: 14px;
   color: inherit;
   text-decoration: none;
-}
-
-.resource-card + .resource-card {
-  border-left: 1px solid #d5e4f5;
 }
 
 a.resource-card:hover {
@@ -685,13 +681,6 @@ a.resource-card:hover {
   font-size: 14px;
 }
 
-.resource-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.resource-links a,
 .section-kicker a {
   color: var(--accent);
   text-underline-offset: 3px;
@@ -865,14 +854,6 @@ select:focus,
   .mini:nth-child(3) { border-radius: 0 0 0 16px; }
   .mini:last-child { border-radius: 0 0 16px 0; }
 
-  .resource-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .resource-card + .resource-card {
-    border-top: 1px solid #d5e4f5;
-    border-left: 0;
-  }
 }
 
 @media (max-width: 680px) {

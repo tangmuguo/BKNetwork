@@ -33,6 +33,12 @@ BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关�
 
 关闭分流或从托盘正常退出 BKNetwork，会重新启动本次已适配且仍在运行的 quota-float，恢复该 Windows 用户的默认环境。恢复失败会重试一次；若仍失败，保留原实例并在卡片或日志提示完全退出、重新打开 quota-float，避免误报恢复成功。环境来自原用户的 Windows 环境配置；若需要自定义 `CODEX_HOME`，应配置为用户环境变量，而不是仅在某个启动终端中临时设置。适配用于交互式桌面会话，Windows 服务不会跨会话接管其他用户的额度工具。若代理适配成功后仍显示未登录，应再检查 Codex 自身登录状态；BKNetwork 不刷新或替换登录令牌。
 
+## v2.0.3 界面入口与应用图标更新
+
+- 移除基础模式页面中的 Telegram、Discord 和“更多免流模式”卡片，保留 WARP 下载入口并让其占满资源区域。
+- 网页 favicon、Windows 托盘和窗口图标改用 `favicon-v2.svg`、`favicon-v2.png` 与 `favicon-v2.ico`；Windows 可执行文件同步嵌入新版 ICO。
+- 其余网络控制、WARP、家庭 WireGuard、ChatGPT 分流与状态采集逻辑沿用 v2.0.2。
+
 ## v2.0.2 资源占用与状态响应优化
 
 本版保留现有开关、状态刷新周期、免流判定、路由保护和失败恢复流程，减少重复采集及后台资源开销：
@@ -97,9 +103,11 @@ cd BKNetwork
 .\scripts\build-release.ps1
 ```
 
+发布脚本检测到 `windres.exe` 时，会根据 `cmd/bknetwork/bknetwork.rc` 从 `web/favicon-v2.ico` 重新生成 Windows 图标、版本资源和应用清单；未检测到该工具时使用仓库中已生成的 `.syso` 文件。
+
 或右键使用 powershell 运行。
 
-`releases/bknetwork-v2.0.2/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
+`releases/bknetwork-v2.0.3/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
 
 在非 Windows 平台上交叉编译 Windows x64 二进制文件：
 

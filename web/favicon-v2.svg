@@ -1,0 +1,31 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>BKNetwork blue network icon</title>
+  <defs>
+    <linearGradient id="background" x1="30" y1="22" x2="226" y2="234" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#62D3FF"/>
+      <stop offset="0.38" stop-color="#1887FF"/>
+      <stop offset="0.7" stop-color="#0A5AE8"/>
+      <stop offset="1" stop-color="#073DAE"/>
+    </linearGradient>
+    <radialGradient id="highlight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(56 38) rotate(43) scale(151 137)">
+      <stop stop-color="white" stop-opacity="0.38"/>
+      <stop offset="0.58" stop-color="white" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="82" y1="78" x2="173" y2="181" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white"/>
+      <stop offset="1" stop-color="#E8F6FF"/>
+    </linearGradient>
+    <filter id="mark-shadow" x="52" y="55" width="152" height="153" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#03275F" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="256" height="256" rx="58" fill="url(#background)"/>
+  <rect width="256" height="256" rx="58" fill="url(#highlight)"/>
+  <rect x="3" y="3" width="250" height="250" rx="55" stroke="white" stroke-opacity="0.22" stroke-width="4"/>
+
+  <g filter="url(#mark-shadow)">
+    <path d="M78 174V82L178 174V82" stroke="url(#mark)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

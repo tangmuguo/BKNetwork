@@ -1,5 +1,5 @@
 param(
-	[string]$Version = "2.0.2",
+	[string]$Version = "2.0.3",
     [string]$OutputDir = "",
     [string]$ZipName = ""
 )
@@ -26,6 +26,9 @@ $webTarget = Join-Path $OutputDir 'web'
 $exeTarget = Join-Path $OutputDir 'bknetwork.exe'
 $zipDir = Join-Path $repoRoot 'releases'
 $zipTarget = Join-Path $repoRoot ('releases\' + $ZipName)
+$resourceDir = Join-Path $repoRoot 'cmd\bknetwork'
+$resourceSource = Join-Path $resourceDir 'bknetwork.rc'
+$resourceTarget = Join-Path $resourceDir 'rsrc_windows_amd64.syso'
 
 if (Test-Path $OutputDir) {
     Remove-Item $OutputDir -Recurse -Force
@@ -36,6 +39,23 @@ if (-not (Test-Path $zipDir)) {
 }
 
 Copy-Item -Path $webSource -Destination $webTarget -Recurse -Force
+
+$windresCommand = Get-Command windres.exe -ErrorAction SilentlyContinue
+if ($null -ne $windresCommand) {
+    Push-Location $resourceDir
+    try {
+        & $windresCommand.Source -i (Split-Path -Leaf $resourceSource) -J rc -O coff -F pe-x86-64 -o (Split-Path -Leaf $resourceTarget)
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $resourceTarget)) {
+            throw "windres failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        Pop-Location
+    }
+} elseif (-not (Test-Path $resourceTarget)) {
+    throw "windres.exe is unavailable and $resourceTarget does not exist"
+} else {
+    Write-Warning "windres.exe is unavailable; using the existing Windows resource file"
+}
 
 Push-Location $repoRoot
 try {

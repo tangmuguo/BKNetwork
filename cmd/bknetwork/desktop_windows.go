@@ -168,7 +168,7 @@ func runDesktopApp() error {
 		cfg = appsettings.Settings{}
 	}
 
-	trayIcon, err := resolveWebAssetPath("favicon.ico")
+	trayIcon, err := resolveWebAssetPath("favicon-v2.ico")
 	if err != nil {
 		log.Printf("tray icon unavailable; continuing without it: %v", err)
 		trayIcon = ""

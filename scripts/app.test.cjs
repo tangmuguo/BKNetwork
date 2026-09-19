@@ -68,7 +68,7 @@ function createHarness() {
     querySelector(selector) {
       if (selector === '.lead') {
         const lead = getElement('__lead');
-        lead.textContent = 'v2.0.2';
+        lead.textContent = 'v2.0.3';
         return lead;
       }
       return getElement(`query:${selector}`);
