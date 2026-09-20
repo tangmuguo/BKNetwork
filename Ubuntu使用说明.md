@@ -166,52 +166,46 @@ sudo /opt/bknetwork/bknetwork recover
 
 ## 6. Clash 应用分流
 
-此功能在当前桌面用户下安装一次，随后由 BKNetwork 的 WARP 连接与恢复流程自动切换 GNOME 系统代理：
+此功能默认关闭。在连接方式页面的 Cloudflare WARP 面板打开 **Clash / quota-float 兼容** 开关后，后台才会为当前活动的本地桌面用户安装应用入口，并由 WARP 连接与恢复流程切换 GNOME 系统代理：
 
 | 状态 | ChatGPT、quota-float | 其他应用 |
 | --- | --- | --- |
-| WARP 未启用 | 专用 HTTP 代理进入 Clash | 按原有 Clash 系统代理设置联网 |
-| WARP 已启用 | 仍进入 Clash，由 Clash 规则/全局模式选择出口 | GNOME 系统代理暂停，默认路由走 WARP |
-| WARP 断开或连接失败 | 专用 Clash 代理保留 | 恢复连接前的 GNOME 系统代理模式 |
+| 兼容开关关闭 | 使用原始菜单/自启动入口，不由 BKNetwork 注入 Clash | 按当前系统代理设置联网 |
+| 兼容开关开启、WARP 未启用 | 专用 HTTP 代理进入 Clash | 按原有 Clash 系统代理设置联网 |
+| 兼容开关开启、WARP 已启用 | 仍进入 Clash，由 Clash 规则/全局模式选择出口 | GNOME 系统代理暂停，默认路由走 WARP |
+| 兼容开关开启、WARP 断开或失败 | 专用 Clash 代理保留 | 恢复连接前的 GNOME 系统代理模式 |
 
 这里的“规则/全局”是 Clash 内核转发模式，和“系统代理”开关不同。全局模式下选择 `GLOBAL` 的代理节点；规则模式下确保 `chatgpt.com`、`openai.com` 等相关请求命中可用代理节点。若命中 `DIRECT`，请求虽进入 Clash，仍由 WARP 提供出口。Clash 到代理节点的连接也默认通过 WARP 提供的底层网络。
 
 ### 配置应用入口
 
-此功能需要 GNOME 桌面会话以及 `loginctl`、`runuser`、`gsettings`（分别由 `systemd`、`util-linux`、`libglib2.0-bin` 提供，Ubuntu 桌面通常已安装）。先安装包含 `app-proxy` 子命令的 BKNetwork 新版二进制，然后在 **普通桌面用户** 的终端执行，不能使用 `sudo`：
+此功能需要 GNOME 桌面会话以及 `loginctl`、`runuser`、`gsettings`（分别由 `systemd`、`util-linux`、`libglib2.0-bin` 提供，Ubuntu 桌面通常已安装）。安装新版 BKNetwork 后，在连接方式页面打开兼容开关，填写 Clash 的 HTTP/mixed 端口（默认 `7897`）即可。页面请求由 root 服务发起，但后台会降权到活动桌面用户执行文件安装，不会把 root 作为应用入口的所有者。
 
-```bash
-/opt/bknetwork/bknetwork app-proxy install --port 7897
-/opt/bknetwork/bknetwork app-proxy status
-```
-
-`7897` 是本机 Clash Verge 当前混合端口；如已修改端口，应填实际 HTTP 或 mixed 端口。quota-float 当前构建没有启用 SOCKS 支持，因此不要填写 SOCKS-only 端口。安装器保存原始文件后，更新 ChatGPT、quota-float 的用户菜单入口及**已有**自动启动入口；不会创建原本不存在的自动启动项。专用启动器设置大小写的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`，并为 ChatGPT 添加 Electron 代理参数；`localhost`、`127.0.0.1`、`::1` 保持直连，用于本地 API、登录回调与客户端通信。
+`7897` 是本机 Clash Verge 当前混合端口；如已修改端口，应填实际 HTTP 或 mixed 端口。quota-float 当前构建没有启用 SOCKS 支持，因此不要填写 SOCKS-only 端口。后台安装器保存原始文件后，更新 ChatGPT、quota-float 的用户菜单入口及**已有**自动启动入口；不会创建原本不存在的自动启动项。专用启动器设置大小写的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`，并为 ChatGPT 添加 Electron 代理参数；`localhost`、`127.0.0.1`、`::1` 保持直连，用于本地 API、登录回调与客户端通信。
 
 安装完成后，在合适的时间完全退出 ChatGPT 和 quota-float 再从应用菜单重新打开。已运行的应用或其子进程不会自动接收新的启动参数；仅关闭窗口可能仍保留后台实例。安装器不会关闭正在运行的客户端。
 
-配置标记固定保存在 `~/.local/share/bknetwork/app-proxy/config.json`。WARP 连接前会读取本机活动 GNOME 桌面用户的配置，并把原系统代理模式保存到 root 恢复记录，再以对应用户身份修改 dconf。没有安装应用分流配置的用户、SSH/TTY 会话和 WireGuard 模式不参与这项切换。
+配置标记固定保存在 `~/.local/share/bknetwork/app-proxy/config.json`。开启兼容后，WARP 连接前会读取本机活动 GNOME 桌面用户的配置，并把原系统代理模式保存到 root 恢复记录，再以对应用户身份修改 dconf。没有安装应用分流配置的用户、SSH/TTY 会话和 WireGuard 模式不参与应用分流切换。
 
 ### 日常切换
 
-准备共用 WARP 时，在 Clash Verge 中关闭 **TUN** 和**系统代理守卫**，开启所需的系统代理，并保持 Clash 程序运行。随后在 BKNetwork 中连接 WARP：系统代理模式变为 `none`，两个专用启动的应用继续使用 Clash。断开 WARP 后，BKNetwork 恢复先前的系统代理模式，代理端口、PAC URL、绕过列表与 Clash 节点规则均保持原配置。原模式若本来是 `none`，断开后仍是 `none`，不会自行开启系统代理。
+准备共用 WARP 时，在 Clash Verge 中关闭 **TUN** 和**系统代理守卫**，开启所需的系统代理，并保持 Clash 程序运行。无论兼容开关是否开启，BKNetwork 都会在隧道连接前拒绝活动 TUN 或系统代理守卫；它不会自动打开或关闭这两个开关，也不会修改 Clash 的订阅、规则、节点或界面开关记录。开启兼容后，连接 WARP 会将 GNOME 系统代理模式变为 `none`，两个专用启动的应用继续使用 Clash；断开 WARP 后，BKNetwork 恢复先前的系统代理模式，代理端口、PAC URL、绕过列表与 Clash 节点规则均保持原配置。原模式若本来是 `none`，断开后仍是 `none`，不会自行开启系统代理。
 
-本次配置和离线测试不需要关闭当前正在使用的 TUN。BKNetwork 仍会阻止与活动 TUN 同时建立 WARP，避免两个隧道争用默认路由；要启用共用方案时再切换 Clash。此功能不会自动打开或关闭 TUN，也不会修改 Clash 的订阅、规则、节点或界面开关记录。
-
-WARP 使用期间不要再次打开系统代理或代理守卫；否则其他应用也会重新进入 Clash。如果用户已手动选择了不同的非 `none` 代理模式，恢复时会保留该新选择。已经建立的连接可能继续使用原出口，必要时重新连接相关应用。应用自身固定的代理、终端里预先导出的代理变量以及原始 UDP 流量不属于 GNOME HTTP 系统代理的控制范围。
-
-quota-float 的额度请求使用 reqwest，已有环境代理支持，无需改动源码或重新登录。但它内置的“开机启动”开关会重新生成自动启动文件。之后若操作了该开关，应先断开 WARP，再执行 `app-proxy remove` 和 `app-proxy install --port 7897` 重建应用入口。若出现文件冲突，请先根据提示检查相应入口及备份，不能强行覆盖。手动在终端直接运行原始 `quota-float` / `chatgpt` 命令也不会自动使用菜单入口的专用代理；可使用 `bknetwork app-proxy run quota-float` 或 `bknetwork app-proxy run chatgpt`。
+WARP 使用期间不要再次打开系统代理或代理守卫；否则其他应用也会重新进入 Clash。如果用户已手动选择了不同的非 `none` 代理模式，恢复时会保留该新选择。已经建立的连接可能继续使用原出口，必要时重新连接相关应用。应用自身固定的代理、终端里预先导出的代理变量以及原始 UDP 流量不属于 GNOME HTTP 系统代理的控制范围。隧道运行或待恢复期间，页面会锁定兼容开关，必须先完成断开和恢复。
 
 ### 恢复与移除
 
 如果系统代理恢复失败，BKNetwork 保留恢复记录并提示重试；按前文先停止服务，再运行 `sudo /opt/bknetwork/bknetwork recover`。这会重试网络及系统代理恢复，不能直接删除 root 状态文件。若原桌面用户已注销，请先重新登录该用户，确保用户的 D-Bus 会话可用后再恢复。若 `warp-cli` 缺失或无法确认 WARP 已断开，需要先恢复该依赖再重试；BKNetwork 不会在隧道状态不明时重新启用系统代理。
 
-取消应用分流前，先正常断开 WARP 并完成恢复，再以原桌面用户执行：
+quota-float 的额度请求使用 reqwest，已有环境代理支持，无需改动源码或重新登录。但它内置的“开机启动”开关会重新生成自动启动文件。之后若操作了该开关，应先断开 WARP，再重新打开页面兼容开关，或使用下面的 CLI 回退方式重建应用入口。手动在终端直接运行原始 `quota-float` / `chatgpt` 命令也不会自动使用菜单入口的专用代理；可使用 `bknetwork app-proxy run quota-float` 或 `bknetwork app-proxy run chatgpt`。
+
+页面关闭开关会恢复备份的应用入口。命令行仍可作为普通桌面用户的维护回退（不能使用 `sudo`）：
 
 ```bash
 /opt/bknetwork/bknetwork app-proxy remove
 ```
 
-该命令恢复备份的应用入口。若入口安装后被手动修改，安装器会提示冲突，避免覆盖后续修改。BKNetwork 的系统卸载不删除用户备份；如需取消分流，应先完成这一步。
+若入口安装后被手动修改，安装器会提示冲突，避免覆盖后续修改。BKNetwork 的系统卸载不删除用户备份；如需取消分流，应先断开隧道并完成恢复。
 
 技术依据：[Electron 代理启动参数](https://www.electronjs.org/zh/docs/latest/api/command-line-switches)、[mihomo 规则/全局模式](https://wiki.metacubex.one/en/config/general/)、[mihomo 流量入口](https://wiki.metacubex.one/en/config/inbound/)。quota-float 的两项额度请求位于其 `src-tauri/src/codex.rs::fetch_snapshot`，共用 `src-tauri/src/lib.rs` 创建的 reqwest 客户端；该客户端保留默认的环境代理读取行为。
 

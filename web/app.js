@@ -43,6 +43,11 @@
     warpAvailability: $('#warpAvailability'),
     wireguardAvailability: $('#wireguardAvailability'),
     warpPanelNote: $('#warpPanelNote'),
+    clashCompatibilityControl: $('#clashCompatibilityControl'),
+    clashCompatibilityState: $('#clashCompatibilityState'),
+    clashCompatibilityHelp: $('#clashCompatibilityHelp'),
+    clashCompatibilityToggle: $('#clashCompatibilityToggle'),
+    clashCompatibilityPort: $('#clashCompatibilityPort'),
     wireguardPanelNote: $('#wireguardPanelNote'),
     warpPanelState: $('#warpPanelState'),
     wireguardPanelState: $('#wireguardPanelState'),
@@ -73,6 +78,8 @@
     direct: '直连',
   };
 
+  const defaultClashProxyPort = 7897;
+
   const phaseLabels = {
     idle: '未连接',
     connecting: '连接中',
@@ -95,6 +102,10 @@
     settingsSaving: false,
     settingsLoaded: false,
     settings: { autoStart: false },
+    clashProxyLoading: false,
+    clashProxySaving: false,
+    clashProxyError: '',
+    clashCompatibility: { enabled: false, port: defaultClashProxyPort },
     previousFocus: null,
     toastTimer: null,
     pollTimer: null,
@@ -227,6 +238,22 @@
 
   function getNetwork() {
     return state.status?.network || {};
+  }
+
+  function clashCompatibilityLocked() {
+    const network = getNetwork();
+    const phase = text(network.phase, 'idle');
+    const tunnelActive = phase === 'connected' || phase === 'connecting' || phase === 'disconnecting' || phase === 'recovery' || network.recoveryPending === true;
+    return !state.status || state.busy || state.clashProxyLoading || state.clashProxySaving || isReadOnly() || tunnelActive;
+  }
+
+  function normalizeClashCompatibility(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    const port = Number.parseInt(source.port, 10);
+    return {
+      enabled: source.enabled === true,
+      port: Number.isInteger(port) && port >= 1 && port <= 65535 ? port : defaultClashProxyPort,
+    };
   }
 
   async function request(path, options = {}) {
@@ -596,6 +623,59 @@
     setText(dom.readinessSummary, ready === total && total > 0 ? `${modeLabels[state.selectedMode]} 可以连接` : `${total - ready} 项待处理`);
   }
 
+  function renderClashCompatibility() {
+    const network = getNetwork();
+    const compatibility = state.clashCompatibility;
+    const enabled = compatibility.enabled === true;
+    const locked = clashCompatibilityLocked();
+    const phase = text(network.phase, 'idle');
+    const tunnelActive = phase === 'connected' || phase === 'connecting' || phase === 'disconnecting' || phase === 'recovery' || network.recoveryPending === true;
+    const warpInstalled = network.warp?.installed === true;
+
+    if (dom.clashCompatibilityToggle) {
+      dom.clashCompatibilityToggle.checked = enabled;
+      dom.clashCompatibilityToggle.disabled = locked;
+    }
+    if (dom.clashCompatibilityPort) {
+      if (document.activeElement !== dom.clashCompatibilityPort) {
+        dom.clashCompatibilityPort.value = String(compatibility.port || defaultClashProxyPort);
+      }
+      dom.clashCompatibilityPort.disabled = locked || enabled;
+    }
+
+    if (dom.clashCompatibilityState) {
+      dom.clashCompatibilityState.classList.toggle('is-enabled', enabled && !state.clashProxyError);
+      dom.clashCompatibilityState.classList.toggle('is-error', Boolean(state.clashProxyError));
+      setText(dom.clashCompatibilityState, state.clashProxyLoading ? '读取中' : (state.clashProxySaving ? '保存中' : (state.clashProxyError ? '不可用' : (enabled ? '已启用' : '未启用'))));
+    }
+
+    let help = state.clashProxyError;
+    if (!help) {
+      if (isReadOnly()) {
+        help = '当前为只读预览；请使用管理员权限启动后再切换。';
+      } else if (tunnelActive) {
+        help = '隧道运行或待恢复期间锁定此开关；请先断开并完成网络恢复。';
+      } else if (enabled) {
+        help = `ChatGPT 与 quota-float 使用 Clash HTTP 代理 ${compatibility.port || defaultClashProxyPort}；关闭后恢复原始应用入口。`;
+      } else {
+        help = '未启用时不安装应用代理入口；填写 Clash HTTP/mixed 端口后打开开关即可启用。';
+      }
+    }
+    setText(dom.clashCompatibilityHelp, help);
+
+    if (dom.warpPanelNote) {
+      if (!warpInstalled) {
+        setText(dom.warpPanelNote, '未检测到 WARP 客户端，请先安装后再连接；Clash TUN 与系统代理守卫始终禁止。');
+      } else if (state.clashProxyError) {
+        setText(dom.warpPanelNote, 'Clash 应用兼容状态不可用；Clash TUN 与系统代理守卫始终禁止。');
+      } else if (enabled) {
+        setText(dom.warpPanelNote, 'Clash 应用兼容已启用，ChatGPT 与 quota-float 保留专用代理；断开后恢复原系统代理。');
+      } else {
+        setText(dom.warpPanelNote, 'Clash 应用兼容未启用；连接前仍会禁止 Clash TUN 与系统代理守卫。');
+      }
+    }
+  }
+
   function renderFacts() {
     const network = getNetwork();
     const iface = physicalInterfaces(network).find((item) => item.name === state.selectedInterface);
@@ -696,6 +776,7 @@
     if (dom.settingAutoStart) dom.settingAutoStart.disabled = state.settingsLoading || state.settingsSaving || isReadOnly();
     renderInterfaces();
     renderProfiles();
+    renderClashCompatibility();
   }
 
   function renderStatus(payload) {
@@ -748,9 +829,6 @@
     const wireguardInstalled = network.wireguard?.installed === true;
     updateAvailability(dom.warpAvailability, warpInstalled, warpInstalled ? '已安装' : '未安装');
     updateAvailability(dom.wireguardAvailability, wireguardInstalled, wireguardInstalled ? '已安装' : '未安装');
-    setText(dom.warpPanelNote, network.clashAppProxy
-      ? 'Clash 应用分流：ChatGPT 与 quota-float 保留专用代理，断开后恢复原系统代理。'
-      : (warpInstalled ? '连接前会检查 WARP 客户端与管理员权限；Clash 应用分流需按使用说明配置一次。' : '未检测到 WARP 客户端，请先安装后再连接。'));
     setText(dom.wireguardPanelNote, state.homeNetwork?.profilesError || (wireguardInstalled ? '连接前会检查 WireGuard 服务与配置。' : '未检测到 WireGuard，请先安装后再连接。'));
     setPanelState(dom.warpPanelState, isConnected(network, 'warp'), statusLabel(network.warp?.status, warpInstalled ? '未连接' : '未安装'));
     setPanelState(dom.wireguardPanelState, isConnected(network, 'wireguard'), statusLabel(state.homeNetwork?.status, wireguardInstalled ? '未连接' : '未安装'));
@@ -821,6 +899,29 @@
     }
   }
 
+  async function refreshClashCompatibility({ quiet = false, force = false } = {}) {
+    if (state.clashProxyLoading || (state.clashProxySaving && !force)) return null;
+    state.clashProxyLoading = true;
+    state.clashProxyError = '';
+    renderControls();
+    try {
+      const payload = await request('/api/v1/clash-app-proxy');
+      state.clashCompatibility = normalizeClashCompatibility(payload.clashAppProxy);
+      renderControls();
+      return state.clashCompatibility;
+    } catch (error) {
+      state.clashProxyError = error instanceof ApiError ? error.message : 'Clash 应用兼容状态读取失败。';
+      renderControls();
+      if (!quiet) {
+        appendLog(state.clashProxyError, 'Clash', 'error');
+      }
+      return null;
+    } finally {
+      state.clashProxyLoading = false;
+      renderControls();
+    }
+  }
+
   async function refreshHomeNetwork({ quiet = false } = {}) {
     state.profileLoading = true;
     renderControls();
@@ -868,6 +969,50 @@
       throw error;
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleClashCompatibilityToggle() {
+    if (state.clashProxySaving || clashCompatibilityLocked()) {
+      renderControls();
+      return;
+    }
+
+    const previous = { ...state.clashCompatibility };
+    const enabled = dom.clashCompatibilityToggle?.checked === true;
+    const port = Number.parseInt(dom.clashCompatibilityPort?.value || '', 10);
+    if (enabled && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      state.clashProxyError = '请输入 1-65535 之间的 Clash HTTP/mixed 端口。';
+      state.clashCompatibility = previous;
+      renderControls();
+      showToast(state.clashProxyError, 'error');
+      return;
+    }
+
+    state.clashProxySaving = true;
+    state.clashProxyError = '';
+    state.clashCompatibility = { enabled, port: enabled ? port : (previous.port || defaultClashProxyPort) };
+    renderControls();
+    try {
+      await request('/api/v1/clash-app-proxy', {
+        method: 'POST',
+        body: JSON.stringify({ enabled, port: enabled ? port : previous.port || defaultClashProxyPort }),
+      });
+      await refreshClashCompatibility({ quiet: true, force: true });
+      const message = enabled ? '已启用 Clash / quota-float 兼容。' : '已关闭 Clash / quota-float 兼容，已恢复原始应用入口。';
+      appendLog(message, 'Clash');
+      showToast(message);
+    } catch (error) {
+      state.clashCompatibility = previous;
+      state.clashProxyError = error instanceof ApiError ? error.message : 'Clash 应用兼容切换失败。';
+      const detail = error instanceof ApiError && error.detail ? `：${error.detail}` : '';
+      const message = `${state.clashProxyError}${detail}`;
+      appendLog(message, 'Clash', 'error');
+      showToast(message, 'error');
+      renderControls();
+    } finally {
+      state.clashProxySaving = false;
+      renderControls();
     }
   }
 
@@ -1055,6 +1200,7 @@
     dom.profileRefreshBtn?.addEventListener('click', () => refreshHomeNetwork());
     dom.connectionAction?.addEventListener('click', handleConnectionAction);
     dom.recoveryAction?.addEventListener('click', handleRecovery);
+    dom.clashCompatibilityToggle?.addEventListener('change', handleClashCompatibilityToggle);
     dom.clearLogBtn?.addEventListener('click', clearLog);
     dom.settingsOpenBtn?.addEventListener('click', openSettings);
     dom.topSettingsBtn?.addEventListener('click', openSettings);
@@ -1096,8 +1242,12 @@
     renderFacts();
     appendLog('正在读取本机网络状态…', '系统');
     await refreshStatus();
+    await refreshClashCompatibility({ quiet: true });
     await refreshHomeNetwork({ quiet: true });
-    state.pollTimer = window.setInterval(() => refreshStatus({ quiet: true }), 5000);
+    state.pollTimer = window.setInterval(() => {
+      refreshStatus({ quiet: true });
+      refreshClashCompatibility({ quiet: true });
+    }, 5000);
     // Polling is the reliable baseline for a local preview and keeps the page quiet
     // when an optional WebSocket endpoint is unavailable.
   }

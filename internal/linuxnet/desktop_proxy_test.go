@@ -236,6 +236,25 @@ func TestProxyGuardStopsConnectBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestProxyGuardStopsConnectWithoutAppProxyConfiguration(t *testing.T) {
+	m, runner, home := proxyManager(t, "manual", false)
+	path := filepath.Join(home, ".local/share/io.github.clash-verge-rev.clash-verge-rev/verge.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("enable_proxy_guard: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Connect(context.Background(), "warp", "campus0", ""); err == nil || !strings.Contains(err.Error(), "代理守卫") {
+		t.Fatalf("proxy guard without app-proxy configuration accepted: %v", err)
+	}
+	for _, call := range runner.calls {
+		if strings.Contains(call, "device modify") || call == "warp-cli connect" || strings.HasPrefix(call, "runuser ") {
+			t.Fatalf("guard conflict changed the desktop/network: %s", call)
+		}
+	}
+}
+
 func TestOnlyActiveLocalDesktopSessionsQualify(t *testing.T) {
 	valid := "User=1000\nName=desktop-user\nType=wayland\nRemote=no\nActive=yes\n"
 	for _, raw := range []string{
@@ -309,7 +328,7 @@ func TestProxyRestoreRefusesReassignedUserIdentity(t *testing.T) {
 }
 
 func TestActiveClashTUNIsRejectedBeforeAnyProxyChange(t *testing.T) {
-	m, runner, _ := proxyManager(t, "manual", true)
+	m, runner, _ := proxyManager(t, "manual", false)
 	m.interfaceProvider = func(context.Context) ([]Interface, error) {
 		return append(testInterfaces(true), Interface{Name: "Meta", Type: "tun", State: "connected"}), nil
 	}

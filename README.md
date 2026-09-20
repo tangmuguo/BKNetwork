@@ -11,7 +11,7 @@ BKNetwork 是一个只面向 **Ubuntu 26.04 x86_64（amd64）** 的本机网络�
 - 检查 NetworkManager、`iproute2`、WARP、WireGuard 和 DNS 验证依赖。
 - 选择已连接且带公网 IPv6 的物理网卡，临时关闭它的 IPv4，隧道内部仍提供 IPv4 / IPv6 双栈。
 - 使用 Cloudflare WARP 或 `/etc/wireguard` 中的 WireGuard 配置建立隧道。
-- 可选的 Clash 应用分流：开启 WARP 时暂停 GNOME 系统代理，ChatGPT 与 quota-float 使用各自的 Clash 代理；断开或连接失败时恢复原系统代理模式。
+- 可选的 Clash / quota-float 应用兼容：只有在页面开关启用后才安装专用应用入口；开启 WARP 时暂停 GNOME 系统代理，断开或连接失败时恢复原系统代理模式。
 - 断开隧道时恢复连接前保存的 NetworkManager IPv4 配置；如果恢复中断，保留状态供 `recover` 重试。
 - 通过本机 Web 页面查看实时状态。前端只保留项目 GitHub 仓库入口，不依赖其他外部页面跳转。
 
@@ -116,18 +116,17 @@ sudo /opt/bknetwork/bknetwork run --state-dir /var/lib/bknetwork --no-browser
 
 ## 与 Clash Verge 共用
 
-Clash 保持运行，可以选择规则或全局模式。先在普通桌面用户下配置应用入口（不要加 `sudo`）：
+Clash 保持运行，在连接方式页面的 Cloudflare WARP 面板中打开 **Clash / quota-float 兼容** 开关，填写 Clash 的 HTTP/mixed 端口（默认 `7897`）。页面开关会以当前活动桌面用户身份安装或移除应用入口；开启后需要完全退出并重新打开 ChatGPT、quota-float，正在运行的实例不会被关闭。关闭开关会恢复原始菜单和已有自启动入口；如果文件被用户改动，后台会拒绝覆盖并提示处理冲突。
+
+开启兼容后，WARP 连接前保存并暂停当前桌面用户的 GNOME 系统代理，ChatGPT 与 quota-float 通过各自的 Clash wrapper 继续使用本地代理；WARP 断开、连接失败或执行 `recover` 时恢复原来的 `manual` / `auto` / `none` 模式。兼容开关关闭时，不安装这些应用入口，BKNetwork 也不为应用执行 Clash 分流。手动命令仍可作为维护回退：
 
 ```bash
 /opt/bknetwork/bknetwork app-proxy install --port 7897
 /opt/bknetwork/bknetwork app-proxy status
+/opt/bknetwork/bknetwork app-proxy remove
 ```
 
-端口应为 Clash 的 HTTP/混合端口；本机当前为 `7897`。配置只影响 ChatGPT、quota-float 的菜单入口和已有自动启动入口，不修改账号或凭据。安装后应在方便时完全退出并重新打开这两个应用；正在运行的实例不会被关闭。
-
-之后，WARP 连接前保存并暂停当前桌面用户的 GNOME 系统代理，其他遵循系统代理的应用改用 WARP 默认路由；WARP 断开、连接失败或执行 `recover` 时恢复原来的 `manual` / `auto` / `none` 模式。未启用 WARP 时仍由原来的 Clash 设置管理流量。详细限制与恢复方法见 [Ubuntu 使用说明](Ubuntu使用说明.md#6-clash-应用分流)。
-
-WARP 共用时需关闭 Clash **TUN** 和**系统代理守卫**，保留 Clash 本地代理端口；BKNetwork 不自动切换 TUN。Clash 规则模式仍按用户规则决定节点，`DIRECT` 规则会使用 WARP 出口。HTTP 系统代理、应用代理与 TUN 是不同的流量入口。
+无论页面开关是否开启，BKNetwork 都会在隧道连接前拒绝活动的 Clash **TUN** 和**系统代理守卫**，也不会自动替用户打开或关闭它们。Clash 规则模式仍按用户规则决定节点，`DIRECT` 规则会使用 WARP 出口。HTTP 系统代理、应用代理与 TUN 是不同的流量入口。详细限制与恢复方法见 [Ubuntu 使用说明](Ubuntu使用说明.md#6-clash-应用分流)。
 
 ## 从源码构建
 

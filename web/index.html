@@ -7,7 +7,7 @@
   <meta name="description" content="BKNetwork Ubuntu 本机校园网 IPv6 连接控制台" />
   <title>BKNetwork · Ubuntu 26.04</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="styles.css?v=10" />
+  <link rel="stylesheet" href="styles.css?v=11" />
 </head>
 <body>
   <a class="skip-link" href="#mainContent">跳到主要内容</a>
@@ -117,8 +117,13 @@
 
           <div class="mode-panel-grid">
             <div class="shared-interface-control"><div class="shared-control-copy"><label for="interfaceSelect">物理网卡</label><span class="field-help" id="interfaceHelp">仅显示系统检测到的物理网卡。</span></div><select id="interfaceSelect"><option value="">正在读取可用网卡…</option></select></div>
+            <div class="network-safety-note" role="status"><span class="network-safety-icon"><svg class="icon"><use href="#icon-shield" /></svg></span><span><strong>Clash 安全边界</strong><small>TUN 模式与系统代理守卫始终禁止，连接前会自动检查。</small></span></div>
             <article class="mode-panel is-visible" id="warpPanel" role="tabpanel" aria-labelledby="warpModeTab" data-mode-panel="warp">
               <div class="panel-heading"><div class="panel-icon warp-panel-icon"><svg class="icon"><use href="#icon-warp" /></svg></div><div><h3>Cloudflare WARP</h3><p>使用 WARP 为校园网 IPv6 提供隧道出口。配置应用分流后，ChatGPT 与 quota-float 可继续使用 Clash。</p></div><span class="availability-tag" id="warpAvailability">检测中</span></div>
+              <div class="clash-compatibility" id="clashCompatibilityControl">
+                <div class="clash-compatibility-copy"><div class="clash-compatibility-title"><strong>Clash / quota-float 兼容</strong><span class="compatibility-state" id="clashCompatibilityState" aria-live="polite">读取中</span></div><p id="clashCompatibilityHelp">启用后才会为 ChatGPT 与 quota-float 安装专用 Clash 入口；关闭时恢复原始应用入口。</p></div>
+                <div class="clash-compatibility-actions"><label class="compatibility-port" for="clashCompatibilityPort"><span>HTTP / mixed 端口</span><input id="clashCompatibilityPort" type="number" min="1" max="65535" value="7897" inputmode="numeric" /></label><label class="switch compatibility-switch" title="启用 Clash 与 quota-float 兼容"><input id="clashCompatibilityToggle" type="checkbox" aria-label="启用 Clash 与 quota-float 兼容" /><span class="switch-track"></span></label></div>
+              </div>
               <div class="panel-footer"><span class="panel-footnote"><svg class="icon"><use href="#icon-shield" /></svg><span id="warpPanelNote">连接前会检查 WARP 客户端与管理员权限。</span></span><span class="panel-state" id="warpPanelState">未连接</span></div>
             </article>
 
@@ -166,6 +171,6 @@
     </section>
   </div>
 
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

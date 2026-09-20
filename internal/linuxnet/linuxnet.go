@@ -92,6 +92,7 @@ type Status struct {
 type Options struct {
 	Runner            Runner
 	WireGuardDir      string
+	AppProxyBinary    string
 	InterfaceProvider func(context.Context) ([]Interface, error)
 	PathFinder        interface{ LookPath(string) (string, error) }
 	NMCLI             string
@@ -129,6 +130,7 @@ type Manager struct {
 	commands             commandNames
 	interfaceProvider    func(context.Context) ([]Interface, error)
 	privileged           func() bool
+	appProxyBinary       string
 	desktopUserProvider  func(context.Context) ([]desktopUser, error)
 	desktopAccountLookup func(string) (*user.User, error)
 }
@@ -188,6 +190,7 @@ func NewManagerWithOptions(stateDir string, options Options) *Manager {
 	return &Manager{
 		stateDir:          filepath.Clean(stateDir),
 		wireGuardDir:      filepath.Clean(options.WireGuardDir),
+		appProxyBinary:    strings.TrimSpace(options.AppProxyBinary),
 		runner:            options.Runner,
 		pathFinder:        pf,
 		interfaceProvider: options.InterfaceProvider,
@@ -448,6 +451,11 @@ func (m *Manager) Connect(ctx context.Context, mode, ifName, profile string) err
 	}
 	if err := m.checkConflicts(ctx, mode, ifName); err != nil {
 		return err
+	}
+	if mode == "warp" || mode == "wireguard" {
+		if err := m.checkClashProxyGuard(ctx); err != nil {
+			return err
+		}
 	}
 	if err := rejectOtherPhysicalIPv4(interfaces, ifName); err != nil {
 		return err

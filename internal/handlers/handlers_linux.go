@@ -23,8 +23,14 @@ type networkManager interface {
 	Disconnect(context.Context) error
 }
 
+type clashAppProxyManager interface {
+	ClashAppProxyStatus(context.Context) (linuxnet.ClashAppProxyStatus, error)
+	SetClashAppProxy(context.Context, bool, int) error
+}
+
 type API struct {
 	manager          networkManager
+	clashAppProxy    clashAppProxyManager
 	settings         *settings.Store
 	privileged       func() bool
 	setAutoStart     func(context.Context, bool) error
@@ -42,7 +48,8 @@ func Configure(manager *linuxnet.Manager, store *settings.Store) {
 }
 
 func newAPI(manager networkManager, store *settings.Store) *API {
-	return &API{manager: manager, settings: store, privileged: func() bool { return os.Geteuid() == 0 },
+	clashAppProxy, _ := manager.(clashAppProxyManager)
+	return &API{manager: manager, clashAppProxy: clashAppProxy, settings: store, privileged: func() bool { return os.Geteuid() == 0 },
 		setAutoStart: settings.SetAutoStart, autoStartEnabled: settings.AutoStartEnabled, operation: make(chan struct{}, 1)}
 }
 
@@ -192,6 +199,44 @@ func (a *API) register(mux *http.ServeMux, hub *events.Hub) {
 			return
 		}
 		a.mutate(w, hub, "restore", a.manager.Disconnect)
+	})
+	mux.HandleFunc("/api/v1/clash-app-proxy", func(w http.ResponseWriter, r *http.Request) {
+		if a.clashAppProxy == nil {
+			apiError(w, http.StatusNotImplemented, "当前后端不支持 Clash 应用兼容")
+			return
+		}
+		if r.Method == http.MethodGet {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			status, err := a.clashAppProxy.ClashAppProxyStatus(ctx)
+			if err != nil {
+				apiError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "clashAppProxy": status})
+			return
+		}
+		if !method(w, r, http.MethodPost) {
+			return
+		}
+		var p struct {
+			Enabled *bool `json:"enabled"`
+			Port    int   `json:"port"`
+		}
+		if !decode(w, r, &p) {
+			return
+		}
+		if p.Enabled == nil {
+			apiError(w, http.StatusBadRequest, "缺少 enabled 字段")
+			return
+		}
+		if *p.Enabled && (p.Port < 1 || p.Port > 65535) {
+			apiError(w, http.StatusBadRequest, "Clash HTTP/mixed 端口必须在 1-65535 之间")
+			return
+		}
+		a.mutate(w, hub, "clash-app-proxy", func(ctx context.Context) error {
+			return a.clashAppProxy.SetClashAppProxy(ctx, *p.Enabled, p.Port)
+		})
 	})
 	mux.HandleFunc("/api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,9 +15,11 @@ import (
 )
 
 type fakeManager struct {
-	calls []string
-	err   error
-	state linuxnet.Status
+	calls         []string
+	err           error
+	state         linuxnet.Status
+	clashProxy    linuxnet.ClashAppProxyStatus
+	clashProxyErr error
 }
 
 func (m *fakeManager) Status(context.Context) linuxnet.Status { return m.state }
@@ -26,6 +29,14 @@ func (m *fakeManager) Connect(_ context.Context, mode, iface, profile string) er
 }
 func (m *fakeManager) Disconnect(context.Context) error {
 	m.calls = append(m.calls, "disconnect")
+	return m.err
+}
+func (m *fakeManager) ClashAppProxyStatus(context.Context) (linuxnet.ClashAppProxyStatus, error) {
+	return m.clashProxy, m.clashProxyErr
+}
+func (m *fakeManager) SetClashAppProxy(_ context.Context, enabled bool, port int) error {
+	m.calls = append(m.calls, "clash:"+strconv.FormatBool(enabled)+":"+strconv.Itoa(port))
+	m.clashProxy = linuxnet.ClashAppProxyStatus{Enabled: enabled, Port: port}
 	return m.err
 }
 
@@ -55,6 +66,7 @@ func TestPreviewCannotChangeNetworkOrSettings(t *testing.T) {
 		{"/api/v1/warp-mode", `{"ifName":"wlp1s0","enabled":true}`},
 		{"/api/v1/home-network", `{"ifName":"wlp1s0","tunnelName":"home","action":"start"}`},
 		{"/api/v1/disconnect", `{}`},
+		{"/api/v1/clash-app-proxy", `{"enabled":true,"port":7897}`},
 		{"/api/v1/settings", `{"autoStart":true}`},
 	} {
 		w := request(mux, "POST", test.path, test.body)
@@ -92,6 +104,26 @@ func TestModesAndUniversalRecoveryAreRouted(t *testing.T) {
 		if m.calls[len(m.calls)-1] != test.want {
 			t.Fatalf("calls=%v", m.calls)
 		}
+	}
+}
+
+func TestClashAppProxyCanBeReadAndToggled(t *testing.T) {
+	_, manager, mux := testAPI(t, true)
+
+	if w := request(mux, http.MethodGet, "/api/v1/clash-app-proxy", ``); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"enabled":false`) {
+		t.Fatalf("initial Clash app-proxy status = %d %s", w.Code, w.Body)
+	}
+	if w := request(mux, http.MethodPost, "/api/v1/clash-app-proxy", `{"enabled":true,"port":7897}`); w.Code != http.StatusOK {
+		t.Fatalf("enable Clash app-proxy = %d %s", w.Code, w.Body)
+	}
+	if got := manager.calls[len(manager.calls)-1]; got != "clash:true:7897" {
+		t.Fatalf("Clash app-proxy call = %q", got)
+	}
+	if w := request(mux, http.MethodGet, "/api/v1/clash-app-proxy", ``); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"enabled":true`) || !strings.Contains(w.Body.String(), `"port":7897`) {
+		t.Fatalf("enabled Clash app-proxy status = %d %s", w.Code, w.Body)
+	}
+	if w := request(mux, http.MethodPost, "/api/v1/clash-app-proxy", `{"enabled":true,"port":0}`); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid Clash app-proxy port = %d %s", w.Code, w.Body)
 	}
 }
 

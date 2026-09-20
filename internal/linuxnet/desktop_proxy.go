@@ -229,6 +229,26 @@ func (m *Manager) captureDesktopProxies(ctx context.Context) ([]desktopProxySnap
 	return result, nil
 }
 
+// Clash's system-proxy guard is a global safety conflict for tunnel modes,
+// even when application compatibility is disabled.  Otherwise Clash could
+// re-enable GNOME's proxy after BKNetwork has deliberately suspended it.
+func (m *Manager) checkClashProxyGuard(ctx context.Context) error {
+	users, err := m.activeDesktopUsers(ctx)
+	if err != nil {
+		return err
+	}
+	for _, user := range users {
+		enabled, err := clashProxyGuardEnabled(user.Home)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			return errors.New("请先关闭 Clash Verge 的系统代理守卫；BKNetwork 始终禁止代理守卫")
+		}
+	}
+	return nil
+}
+
 func (m *Manager) suspendDesktopProxies(ctx context.Context, state *persistentState) error {
 	for index := range state.DesktopProxies {
 		snapshot := &state.DesktopProxies[index]
