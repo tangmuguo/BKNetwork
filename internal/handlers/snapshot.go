@@ -69,16 +69,21 @@ type warpSettingsSnapshot struct {
 // WireGuard configuration and its private key remain in the official client's
 // protected configuration store.
 type homeNetworkSnapshot struct {
-	Installed        bool   `json:"installed"`
-	TunnelName       string `json:"tunnelName,omitempty"`
-	ServiceState     string `json:"serviceState,omitempty"`
-	Running          bool   `json:"running"`
-	Connected        bool   `json:"connected"`
-	LastHandshakeAt  string `json:"lastHandshakeAt,omitempty"`
-	HandshakeAgeSecs int64  `json:"handshakeAgeSeconds,omitempty"`
-	ReceivedBytes    uint64 `json:"receivedBytes,omitempty"`
-	SentBytes        uint64 `json:"sentBytes,omitempty"`
-	Error            string `json:"error,omitempty"`
+	Installed         bool   `json:"installed"`
+	TunnelName        string `json:"tunnelName,omitempty"`
+	ServiceState      string `json:"serviceState,omitempty"`
+	Running           bool   `json:"running"`
+	Connected         bool   `json:"connected"`
+	Managed           bool   `json:"managed"`
+	ProtectionHealthy bool   `json:"protectionHealthy"`
+	ProtectionError   string `json:"protectionError,omitempty"`
+	LastHandshakeAt   string `json:"lastHandshakeAt,omitempty"`
+	HandshakeAgeSecs  int64  `json:"handshakeAgeSeconds,omitempty"`
+	ReceivedBytes     uint64 `json:"receivedBytes,omitempty"`
+	SentBytes         uint64 `json:"sentBytes,omitempty"`
+	PeerCount         int    `json:"peerCount,omitempty"`
+	FailureClass      string `json:"failureClass,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 type freeFlowModeSnapshot struct {
@@ -247,7 +252,8 @@ func collectNetworkSnapshotUnshared() (networkSnapshot, error) {
 			homeNetwork.Error = err.Error()
 			return
 		}
-		homeNetwork = probeHomeNetworkStatus(ctx, cfg.HomeTunnelName)
+		profiles, _ := listHomeTunnelProfiles()
+		homeNetwork = probePreferredHomeNetworkStatus(ctx, cfg.HomeTunnelName, profiles)
 	}()
 
 	wg.Wait()

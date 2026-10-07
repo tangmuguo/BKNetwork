@@ -68,7 +68,7 @@ function createHarness() {
     querySelector(selector) {
       if (selector === '.lead') {
         const lead = getElement('__lead');
-        lead.textContent = 'v2.0.3';
+        lead.textContent = 'v2.0.4';
         return lead;
       }
       return getElement(`query:${selector}`);
@@ -386,10 +386,55 @@ async function testForcedHomeRefreshWaitsForMutationResult() {
   requests[0].resolve(response({ profiles: [], status: { installed: true, running: false } }));
   await flush();
   assert.equal(requests.length, 2);
-  requests[1].resolve(response({ profiles: ['home'], tunnelName: 'home', status: { installed: true, running: true, connected: true } }));
+  requests[1].resolve(response({ profiles: ['home'], tunnelName: 'home', status: { installed: true, running: true, connected: true, managed: true, protectionHealthy: true } }));
   await first;
   const latest = await forced;
   assert.equal(latest.tunnelName, 'home');
+}
+
+async function testUnmanagedHomeTunnelShowsDangerWarning() {
+  const harness = createHarness();
+  harness.setFetch(async url => {
+    assert.equal(url, '/api/v1/home-network');
+    return response({
+      profiles: ['home'],
+      tunnelName: 'home',
+      status: {
+        installed: true,
+        tunnelName: 'home',
+        running: true,
+        connected: true,
+        managed: false,
+        protectionHealthy: false,
+        protectionError: '未找到该运行隧道的 BKNetwork Endpoint 路由保护记录',
+        sentBytes: 1024,
+        receivedBytes: 1024,
+      },
+    });
+  });
+  await harness.app.loadHomeNetwork(true);
+  assert.match(harness.elements.get('homeNetworkState').textContent, /危险/);
+  assert.match(harness.elements.get('homeNetworkState').textContent, /未检测到有效的 BKNetwork/);
+}
+
+async function testStaleManagedHomeTunnelShowsDangerWarning() {
+  const harness = createHarness();
+  harness.setFetch(async () => response({
+    profiles: ['home'],
+    tunnelName: 'home',
+    status: {
+      installed: true,
+      tunnelName: 'home',
+      running: true,
+      connected: true,
+      managed: true,
+      protectionHealthy: false,
+      protectionError: 'Endpoint /128 物理出口路由不存在',
+    },
+  }));
+  await harness.app.loadHomeNetwork(true);
+  assert.match(harness.elements.get('homeNetworkState').textContent, /危险/);
+  assert.match(harness.elements.get('homeNetworkState').textContent, /Endpoint \/128/);
 }
 
 (async () => {
@@ -400,7 +445,9 @@ async function testForcedHomeRefreshWaitsForMutationResult() {
   await testForcedStatusRefreshWaitsForFreshData();
   await testFailedStatusRequestCanRecover();
   await testForcedHomeRefreshWaitsForMutationResult();
-  console.log('app.js request overlap, WARP state retention and IPv6 timeout tests passed');
+  await testUnmanagedHomeTunnelShowsDangerWarning();
+  await testStaleManagedHomeTunnelShowsDangerWarning();
+  console.log('app.js request overlap, WARP state retention, WireGuard warning and IPv6 timeout tests passed');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

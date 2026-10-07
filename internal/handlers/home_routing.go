@@ -312,6 +312,46 @@ func (m *homeRoutingManager) protectEndpoints(ctx context.Context, tunnelName st
 	return nil
 }
 
+// verifyProtection is intentionally read-only. A persisted recovery record
+// proves ownership, but not that the route and adapter settings are still
+// active; another process may have changed either after BKNetwork prepared
+// them. Re-check the live state before presenting a running tunnel as safe.
+func (m *homeRoutingManager) verifyProtection(ctx context.Context, tunnelName string, endpoints []netip.Addr) error {
+	if len(endpoints) == 0 {
+		return fmt.Errorf("WireGuard 没有可用的 IPv6 Endpoint")
+	}
+	for _, endpoint := range endpoints {
+		if !validHomeEndpoint(endpoint) {
+			return fmt.Errorf("WireGuard Endpoint 不是有效的 IPv6 地址")
+		}
+	}
+	state, err := m.load()
+	if err != nil {
+		return err
+	}
+	if state == nil || !strings.EqualFold(state.TunnelName, tunnelName) {
+		return fmt.Errorf("未找到该隧道的 BKNetwork 物理出口恢复记录")
+	}
+	body := homeRoutingAdapterScript(state) + fmt.Sprintf(
+		"$i=Get-NetIPInterface -InterfaceIndex %d -AddressFamily IPv6 -PolicyStore ActiveStore -ErrorAction Stop;"+
+			"if([string]$i.Forwarding -ne 'Disabled' -or [string]$i.WeakHostSend -ne 'Disabled'){throw '物理 IPv6 网卡的 Forwarding/WeakHostSend 不再处于安全状态'};",
+		state.InterfaceIndex)
+	for _, endpoint := range endpoints {
+		prefix := endpoint.String() + "/128"
+		body += fmt.Sprintf(
+			"$r=@(Get-NetRoute -InterfaceIndex %d -AddressFamily IPv6 -DestinationPrefix '%s' -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' });"+
+				"if($r.Count -eq 0){throw 'Endpoint /128 物理出口路由不存在'};"+
+				"$best=Find-NetRoute -RemoteIPAddress '%s' -ErrorAction Stop | Where-Object { $null -ne $_.PSObject.Properties['DestinationPrefix'] } | Select-Object -First 1;"+
+				"if($null -eq $best -or $best.InterfaceIndex -ne %d -or $best.NextHop -ne '%s'){throw 'Endpoint 当前未通过记录的物理 IPv6 网关'};",
+			state.InterfaceIndex, prefix, state.NextHop, endpoint.String(), state.InterfaceIndex, state.NextHop)
+	}
+	out, err := m.script(ctx, "protection-verify", body)
+	if err != nil {
+		return fmt.Errorf("BKNetwork Endpoint 路由保护实时校验失败：%s：%w", strings.TrimSpace(out), err)
+	}
+	return nil
+}
+
 // Call only AFTER the tunnel is confirmed stopped. Keep state on any failure.
 func (m *homeRoutingManager) restore(ctx context.Context, tunnelName string) error {
 	state, err := m.load()
@@ -358,16 +398,24 @@ func restoreHomeOuterRouting(ctx context.Context, tunnelName string) error {
 	return nil
 }
 
-func protectHomeTunnelEndpoints(ctx context.Context, manager *homeRoutingManager, tunnelName string) error {
+func probeHomeWireGuardEndpoints(ctx context.Context, tunnelName string) ([]netip.Addr, error) {
 	wgExe, err := resolveWGExecutable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	raw, err := execWithTimeout(ctx, wgExe, "show", tunnelName, "endpoints")
 	if err != nil {
-		return fmt.Errorf("无法读取 WireGuard Endpoint：%w", err)
+		return nil, fmt.Errorf("无法读取 WireGuard Endpoint：%w", err)
 	}
 	endpoints, err := parseHomeWireGuardEndpoints(raw)
+	if err != nil {
+		return nil, err
+	}
+	return endpoints, nil
+}
+
+func protectHomeTunnelEndpoints(ctx context.Context, manager *homeRoutingManager, tunnelName string) error {
+	endpoints, err := probeHomeWireGuardEndpoints(ctx, tunnelName)
 	if err != nil {
 		return err
 	}

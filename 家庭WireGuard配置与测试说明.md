@@ -152,7 +152,7 @@ rm -f bknetwork-windows.key bknetwork-windows.pub bknetwork-windows.conf
 ## 六、Windows：导入与 BKNetwork 测试
 
 1. 安装或打开官方 WireGuard for Windows。
-2. 导入 `bknetwork-windows.conf`。
+2. 导入 `bknetwork-windows.conf`，但不要在官方客户端中点击“连接”；官方客户端在此流程中只负责保存配置。
 3. 保持配置名称使用英文、数字、`-`、`_` 等 ASCII 字符，例如 `bknetwork-windows`。
 4. 启动 BKNetwork，刷新“家庭网络 WireGuard”配置列表。
 5. 选择 `bknetwork-windows`，再开启“家庭网络 WireGuard”。
@@ -164,11 +164,10 @@ watch -n 1 'sudo wg show wg0'
 
 当 Windows 成功连接后，新 Peer 的 `latest handshake` 会更新，`transfer` 收发流量会增加。
 
-## BKNetwork v2.0.0 的说明
+## 历史版本说明
 
 - BKNetwork 不会将 WireGuard 服务端端口写死；实际连接端口以 Windows 导入的 `.conf` 文件中的 `Endpoint` 为准。
-- 当前已构建的 v2.0.0 功能版本可用于测试。
-- 但早期 UI/说明示例仍可能写有旧端口 `41580`，后续需要统一改为正确的 `51820` 并重新构建 v2.0.0 测试包。
+- v2.0.0 的早期 UI/说明示例曾使用旧端口 `41580`；当前文档和 v2.0.4 发布包已经统一为示例端口 `51820`。
 - Windows 配置中的正确 Endpoint 形式为：
 
 ```ini
@@ -202,6 +201,10 @@ Endpoint = [2409:8a20:f54:5a10:608e:637b:b2e:c9e6]:51820
 这些保护在 BKNetwork 的家庭网络开关中运行，不会读取或更改 WireGuard 私钥、服务端配置或客户端 `AllowedIPs`。断开及失败恢复时，会先停止隧道，再仅清理本次新增路由并恢复原转发选项；恢复记录位于 `%APPDATA%\BKNetwork\home-routing.json`，支持程序重启后继续恢复。
 
 如果日志出现 `Forwarding/WeakHostSend enabled, which will cause routing loops`，先核对本机外层路由与该物理网卡选项。WireGuard 发送计数并不能证明物理网卡已发出对应数据，也不足以判定 Ubuntu 转发/NAT 错误。
+
+如果错误包含 `WSAEACCES/10013` 或 `connectex ... access permissions`，它表示 Windows 在本地 socket 层拒绝了探测，不能单独证明 WireGuard 或 Ubuntu 失败。v2.0.4 会将其单独分类，并提示检查 System 日志中的 `Tcpip` 事件 `4231/4227`、`TIME_WAIT/BOUND` 数量、动态端口范围和安全过滤规则。程序会在切换网卡前只读执行端口压力预检；统计失败或达到 85% 高水位时均安全中止。
+
+v2.0.4 要求家庭全隧道只有一个服务端 peer，并会在启动各阶段复核 WireGuard 增量：发送超过 64 MiB 且达到 256:1 的异常收发比时尽快停止隧道并恢复网络，避免回环继续占用带宽、端口和 CPU。页面还会实时检查 Endpoint `/128`、最佳物理路由和 `Forwarding/WeakHostSend`；残留恢复记录不再被当作保护有效的证明。该保护仍只在 BKNetwork 开关流程内生效；不得在失败后改用官方 WireGuard 客户端直接连接。
 
 ### 家庭网络重连后失效
 

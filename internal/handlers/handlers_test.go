@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -447,8 +449,8 @@ func TestParseHomeWireGuardDump(t *testing.T) {
 	if got, want := metrics.HandshakeAt, time.Unix(1700000000, 0); !got.Equal(want) {
 		t.Fatalf("handshake = %v, want %v", got, want)
 	}
-	if metrics.ReceivedBytes != 1244 || metrics.SentBytes != 5698 {
-		t.Fatalf("transfers = %d/%d, want 1244/5698", metrics.ReceivedBytes, metrics.SentBytes)
+	if metrics.ReceivedBytes != 1244 || metrics.SentBytes != 5698 || metrics.PeerCount != 2 {
+		t.Fatalf("metrics = %#v, want 1244/5698 across 2 peers", metrics)
 	}
 }
 
@@ -466,8 +468,8 @@ func TestParseHomeWireGuardMetrics(t *testing.T) {
 	if got, want := metrics.HandshakeAt, time.Unix(1700000000, 0); !got.Equal(want) {
 		t.Fatalf("handshake = %v, want %v", got, want)
 	}
-	if metrics.ReceivedBytes != 1244 || metrics.SentBytes != 5698 {
-		t.Fatalf("transfers = %d/%d, want 1244/5698", metrics.ReceivedBytes, metrics.SentBytes)
+	if metrics.ReceivedBytes != 1244 || metrics.SentBytes != 5698 || metrics.PeerCount != 2 {
+		t.Fatalf("metrics = %#v, want 1244/5698 across 2 peers", metrics)
 	}
 }
 
@@ -511,6 +513,112 @@ func TestHomeTunnelIPv4ProbeDiagnostics(t *testing.T) {
 	} {
 		if got := describeHomeProbeTraffic(tc.sent, tc.received); !strings.Contains(got, tc.want) {
 			t.Fatalf("describeHomeProbeTraffic(%d, %d) = %q, want %q", tc.sent, tc.received, got, tc.want)
+		}
+	}
+}
+
+func TestClassifyHomeDialFailure(t *testing.T) {
+	tests := []struct {
+		code uintptr
+		want string
+	}{
+		{code: 10013, want: homeDialFailureAccessDenied},
+		{code: 10024, want: homeDialFailureResourceLimit},
+		{code: 10055, want: homeDialFailureResourceLimit},
+		{code: 10049, want: homeDialFailureAddressMissing},
+		{code: 10061, want: ""},
+	}
+	for _, tc := range tests {
+		err := &net.OpError{Op: "dial", Net: "tcp4", Err: &os.SyscallError{Syscall: "connectex", Err: syscall.Errno(tc.code)}}
+		if got := classifyHomeDialFailure(err); got != tc.want {
+			t.Fatalf("classifyHomeDialFailure(%d) = %q, want %q", tc.code, got, tc.want)
+		}
+		if tc.want != "" && strings.Contains(compactHomeDialError(err), "connectex") {
+			t.Fatalf("compactHomeDialError(%d) leaked the raw, misleading ConnectEx error", tc.code)
+		}
+	}
+}
+
+func TestCommonHomeDialFailureClass(t *testing.T) {
+	attempts := []homeInternetAttempt{
+		{Target: "one", FailureClass: homeDialFailureAccessDenied},
+		{Target: "two", FailureClass: homeDialFailureAccessDenied},
+		{Target: "three", FailureClass: homeDialFailureAccessDenied},
+	}
+	if got := commonHomeDialFailureClass(attempts); got != homeDialFailureAccessDenied {
+		t.Fatalf("commonHomeDialFailureClass() = %q", got)
+	}
+	attempts[2].FailureClass = ""
+	if got := commonHomeDialFailureClass(attempts); got != "" {
+		t.Fatalf("mixed failure classes must not be collapsed, got %q", got)
+	}
+}
+
+func TestHomeTrafficRunaway(t *testing.T) {
+	if homeTrafficRunaway(homeRunawaySentDelta-1, 0) {
+		t.Fatal("traffic below the absolute threshold must not trip the guard")
+	}
+	if !homeTrafficRunaway(homeRunawaySentDelta, 0) {
+		t.Fatal("one-way traffic at the threshold must trip the guard")
+	}
+	if !homeTrafficRunaway(homeRunawaySentDelta, homeRunawaySentDelta/homeRunawayRatio) {
+		t.Fatal("an extreme send/receive ratio must trip the guard")
+	}
+	if homeTrafficRunaway(homeRunawaySentDelta, homeRunawaySentDelta/128) {
+		t.Fatal("ordinary asymmetric traffic must not trip the guard")
+	}
+}
+
+func TestEvaluateHomeTrafficGuard(t *testing.T) {
+	baseline := homeWireGuardMetrics{PeerCount: 1, SentBytes: 100, ReceivedBytes: 100}
+	normal := homeWireGuardMetrics{PeerCount: 1, SentBytes: 1024, ReceivedBytes: 512}
+	if class, detail := evaluateHomeTrafficGuard(baseline, normal, "test"); class != "" || detail != "" {
+		t.Fatalf("normal traffic tripped guard: class=%q detail=%q", class, detail)
+	}
+	multiplePeers := normal
+	multiplePeers.PeerCount = 2
+	if class, _ := evaluateHomeTrafficGuard(baseline, multiplePeers, "test"); class != homeDialFailureGuardUnavailable {
+		t.Fatalf("multiple peers class = %q", class)
+	}
+	runaway := homeWireGuardMetrics{PeerCount: 1, SentBytes: baseline.SentBytes + homeRunawaySentDelta, ReceivedBytes: baseline.ReceivedBytes}
+	if class, detail := evaluateHomeTrafficGuard(baseline, runaway, "test"); class != homeDialFailureTrafficSurge || !strings.Contains(detail, "安全中止") {
+		t.Fatalf("runaway traffic result = %q, %q", class, detail)
+	}
+}
+
+func TestParseHomeTCPPortUsage(t *testing.T) {
+	usage, err := parseHomeTCPPortUsage(`{"IPv4Used":120,"IPv4Allocations":180,"IPv4Bound":80,"IPv4TimeWait":40,"IPv6Used":220,"IPv6Allocations":280,"IPv6Bound":90,"IPv6TimeWait":50,"Capacity":16384}`)
+	if err != nil {
+		t.Fatalf("parseHomeTCPPortUsage: %v", err)
+	}
+	if usage.Used != 220 || usage.Allocations != 280 || usage.Bound != 90 || usage.TimeWait != 50 || usage.IPv4Used != 120 || usage.IPv6Used != 220 || usage.Capacity != 16384 {
+		t.Fatalf("usage = %#v", usage)
+	}
+	for _, raw := range []string{
+		`not-json`,
+		`{"IPv4Used":-1,"Capacity":16384}`,
+		`{"IPv4Used":2,"IPv4Allocations":1,"IPv4Bound":2,"Capacity":16384}`,
+		`{"IPv6Used":2,"IPv6Allocations":2,"Capacity":1}`,
+	} {
+		if _, err := parseHomeTCPPortUsage(raw); err == nil {
+			t.Fatalf("parseHomeTCPPortUsage unexpectedly accepted %q", raw)
+		}
+	}
+}
+
+func TestHomeTCPPortPressureHigh(t *testing.T) {
+	for _, tc := range []struct {
+		used, capacity int
+		want           bool
+	}{
+		{used: 0, capacity: 16384, want: false},
+		{used: 13925, capacity: 16384, want: false},
+		{used: 13927, capacity: 16384, want: true},
+		{used: 16384, capacity: 16384, want: true},
+		{used: 1, capacity: 0, want: false},
+	} {
+		if got := homeTCPPortPressureHigh(tc.used, tc.capacity); got != tc.want {
+			t.Fatalf("homeTCPPortPressureHigh(%d, %d) = %v, want %v", tc.used, tc.capacity, got, tc.want)
 		}
 	}
 }

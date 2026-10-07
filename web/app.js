@@ -1306,6 +1306,13 @@ function syncHomeNetworkState(network) {
     setText(homeNetworkStateEl, '请先在官方 WireGuard 客户端导入家庭 .conf 配置');
     return;
   }
+  if (running && (status.managed !== true || status.protectionHealthy !== true)) {
+    const protectionDetail = typeof status.protectionError === 'string' && status.protectionError.trim()
+      ? `（${status.protectionError.trim()}）`
+      : '';
+    setText(homeNetworkStateEl, `危险：未检测到有效的 BKNetwork Endpoint 路由保护${protectionDetail}；请立即在此关闭，排除问题后再从本开关启动`);
+    return;
+  }
   if (running && status.connected) {
     setText(homeNetworkStateEl, `已连接 · 最近握手 ${formatHomeHandshake(status)} · 下行 ${formatHomeTransfer(status.receivedBytes)} / 上行 ${formatHomeTransfer(status.sentBytes)}`);
     return;

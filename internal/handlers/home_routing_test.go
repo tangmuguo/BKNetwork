@@ -380,6 +380,45 @@ func TestHomeRoutingPreservesExistingEndpointRoute(t *testing.T) {
 	assertHomeRoutingScriptsAreIPv6Only(t, fake)
 }
 
+func TestHomeRoutingVerifyProtectionChecksLiveRouteAndFlags(t *testing.T) {
+	fake := &homeRoutingFake{snapshot: sampleHomeRoutingState()}
+	manager, _ := newHomeRoutingTestManager(t, fake)
+	ctx := context.Background()
+	endpoint := sampleHomeEndpoint(t, "2001:db8::1")
+	if err := manager.prepare(ctx, "WLAN", "home"); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := manager.protectEndpoints(ctx, "home", []netip.Addr{endpoint}); err != nil {
+		t.Fatalf("protectEndpoints: %v", err)
+	}
+	if err := manager.verifyProtection(ctx, "home", []netip.Addr{endpoint}); err != nil {
+		t.Fatalf("verifyProtection: %v", err)
+	}
+	calls := fake.actionCalls("protection-verify")
+	if len(calls) != 1 {
+		t.Fatalf("protection-verify calls = %d, want 1", len(calls))
+	}
+	for _, token := range []string{
+		"Forwarding",
+		"WeakHostSend",
+		"Disabled",
+		"DestinationPrefix '2001:db8::1/128'",
+		"Find-NetRoute -RemoteIPAddress '2001:db8::1'",
+		"InterfaceIndex -ne 14",
+		"NextHop -ne 'fe80::1'",
+	} {
+		if !strings.Contains(calls[0].script, token) {
+			t.Fatalf("protection verification script missing %q: %s", token, calls[0].script)
+		}
+	}
+
+	fake.failAction = "protection-verify"
+	fake.failErr = errors.New("route disappeared")
+	if err := manager.verifyProtection(ctx, "home", []netip.Addr{endpoint}); err == nil || !strings.Contains(err.Error(), "实时校验失败") {
+		t.Fatalf("verifyProtection failure = %v", err)
+	}
+}
+
 func TestHomeRoutingRestoreFailureRetainsState(t *testing.T) {
 	fake := &homeRoutingFake{
 		snapshot:   sampleHomeRoutingState(),

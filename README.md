@@ -17,13 +17,15 @@ BKNetwork 是一个轻量级本地服务，带有内置 Web 管理界面，用�
 
 ## 家庭网络 WireGuard（可选）
 
-如果家里的 Ubuntu 服务器提供可访问的公网 IPv6，且 UDP `51820` 已放行，可以用家庭 WireGuard 替代 Cloudflare WARP。先在 **官方 WireGuard for Windows** 导入客户端配置，在 BKNetwork 页面选择该隧道即可；程序不会读取或保存 WireGuard 私钥。客户端应使用 `Endpoint = [家庭公网IPv6]:51820`、`AllowedIPs = 0.0.0.0/0, ::/0`、隧道内 `DNS` 和 `PersistentKeepalive = 25`。Ubuntu 还需要正确配置 IPv4/IPv6 转发，以及 IPv4 NAT 和 NAT66/回程路由；只有开放 UDP 端口并不足够。
+如果家里的 Ubuntu 服务器提供可访问的公网 IPv6，且 UDP `51820` 已放行，可以用家庭 WireGuard 替代 Cloudflare WARP。先在 **官方 WireGuard for Windows** 导入客户端配置，但不要在官方客户端中直接连接；应回到 BKNetwork 页面选择该隧道并使用家庭网络开关。程序不会读取或保存 WireGuard 私钥。客户端应使用 `Endpoint = [家庭公网IPv6]:51820`、`AllowedIPs = 0.0.0.0/0, ::/0`、隧道内 `DNS` 和 `PersistentKeepalive = 25`。Ubuntu 还需要正确配置 IPv4/IPv6 转发，以及 IPv4 NAT 和 NAT66/回程路由；只有开放 UDP 端口并不足够。
 
 BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关闭 WARP 并切换所选物理网卡为仅 IPv6。隧道内部仍保留 IPv4/IPv6 双栈，访问 IPv4 网站时也经 IPv6 外层传输，保留校园 IPv6 不计费的使用方式。
 
 为避免 Windows 的 `Forwarding/WeakHostSend` 导致外层报文重新进入隧道，程序会在启动前临时关闭所选物理网卡的这两个 IPv6 选项，启动后为每个 IPv6 Endpoint 添加经该物理 IPv6 网关的 `/128` 临时路由，并核对实际出口。只接受 IPv6 Endpoint；不会通过启用物理 IPv4 来修复连接。程序还会校验实际安装的双栈隧道路由、物理网卡保持仅 IPv6，并从隧道 IPv4 地址测试公网和 Windows DNS。未满足这些条件时不会报告免流成功。
 
 断开、切换 WARP 或启动失败时，程序会先确认隧道停止，再删除本次添加的端点路由并恢复原 IPv6 转发选项。原状态保存在 `%APPDATA%\BKNetwork\home-routing.json`（不含密钥），支持程序重启后的恢复；已有路由和其他网卡不受这些修复操作影响。若隧道已经停止但端点清理失败，仍会恢复普通双栈，并保留记录、提示再次关闭重试，不会误报为完全恢复。这些保护在 **BKNetwork 的家庭网络开关** 中执行，单独点击官方 WireGuard 的连接按钮不会执行此流程。
+
+v2.0.4 会在切换网络前只读执行 Windows TCP 动态端口压力预检；无法取得可信统计或达到 85% 高水位时，均在修改网卡前安全中止。连接探测会区分 `WSAEACCES/10013` 等本地 socket 故障与真实隧道路径故障。单 peer 家庭隧道启动期间若 WireGuard 上行增量超过 64 MiB 且达到 256:1 的异常收发比，程序会在各启动阶段复核并尽快失败回滚。页面还会实时核对 Endpoint `/128`、最佳物理路由和 `Forwarding/WeakHostSend`，不能只凭残留状态文件把官方客户端直连标为安全。
 
 ## 与 quota-float 共用
 
@@ -32,6 +34,14 @@ BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关�
 这是因为 quota-float 的原生 HTTP 客户端只在启动时读取代理，不执行 ChatGPT 客户端使用的 PAC，而且把 HTTP 403 也显示为“登录失效”。适配只改变 quota-float 子进程的 HTTP/HTTPS 代理环境；其他应用继续遵循现有 PAC 分流，系统环境变量、quota-float 源码和 Codex 登录文件均不修改。额度工具会短暂重开，新实例通过 Windows 父进程属性继承原 quota-float 的权限，支持管理员 BKNetwork 与普通权限 quota-float 同时运行；原用户身份和权限保持不变。新实例无法准备成功时保留原实例，并在原卡片中显示失败原因。
 
 关闭分流或从托盘正常退出 BKNetwork，会重新启动本次已适配且仍在运行的 quota-float，恢复该 Windows 用户的默认环境。恢复失败会重试一次；若仍失败，保留原实例并在卡片或日志提示完全退出、重新打开 quota-float，避免误报恢复成功。环境来自原用户的 Windows 环境配置；若需要自定义 `CODEX_HOME`，应配置为用户环境变量，而不是仅在某个启动终端中临时设置。适配用于交互式桌面会话，Windows 服务不会跨会话接管其他用户的额度工具。若代理适配成功后仍显示未登录，应再检查 Codex 自身登录状态；BKNetwork 不刷新或替换登录令牌。
+
+## v2.0.4 WireGuard 启动保护与诊断修复
+
+- 启动前执行 Windows TCP 动态端口压力预检；统计失败或达到 85% 高水位时不切换网卡、不启动隧道。
+- 将 `WSAEACCES/10013`、socket 资源耗尽和隧道源地址不可用分类为 Windows 本地探测故障，不再误报为服务端或 MTU 问题。
+- 家庭全隧道限定为一个服务端 peer，并在启动各阶段对极端单向上行加入熔断，防止 Endpoint 回环继续消耗流量和系统资源。
+- 检测官方 WireGuard 客户端直接启动的已导入隧道；实时验证 Endpoint `/128`、最佳物理路由和网卡标志，保护缺失或失效时在页面显示危险告警。
+- 失败回滚后明确提示 Endpoint 保护已清理，禁止改用官方客户端按钮重连。
 
 ## v2.0.3 界面入口与应用图标更新
 
@@ -107,7 +117,7 @@ cd BKNetwork
 
 或右键使用 powershell 运行。
 
-`releases/bknetwork-v2.0.3/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
+`releases/bknetwork-v2.0.4/` 目录里会包含 `bknetwork.exe` 和最新的 `web/`，程序运行时会自动加载同步后的前端页面。
 
 在非 Windows 平台上交叉编译 Windows x64 二进制文件：
 
@@ -192,4 +202,3 @@ node --test scripts/app.test.cjs
 感谢支持！欢迎请我杯喝的QwQ
 
 ![image-20260720145024415](./README.assets/image-20260720145024415.png)
-

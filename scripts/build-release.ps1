@@ -1,5 +1,5 @@
 param(
-	[string]$Version = "2.0.3",
+    [string]$Version = "2.0.4",
     [string]$OutputDir = "",
     [string]$ZipName = ""
 )
@@ -14,6 +14,16 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
 $releaseTag = 'v' + $Version
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$appInfoPath = Join-Path $repoRoot 'internal\appinfo\appinfo.go'
+$indexPath = Join-Path $repoRoot 'web\index.html'
+$appVersionMatch = [regex]::Match((Get-Content $appInfoPath -Raw), '(?m)^\s*Version\s*=\s*"([^"]+)"')
+$webVersionMatch = [regex]::Match((Get-Content $indexPath -Raw), '<p\s+class="lead">v([^<]+)</p>')
+if (-not $appVersionMatch.Success -or $appVersionMatch.Groups[1].Value -ne $Version) {
+    throw "Release version $Version does not match internal/appinfo/appinfo.go"
+}
+if (-not $webVersionMatch.Success -or $webVersionMatch.Groups[1].Value -ne $Version) {
+    throw "Release version $Version does not match web/index.html"
+}
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $repoRoot ('releases\bknetwork-' + $releaseTag)
 }

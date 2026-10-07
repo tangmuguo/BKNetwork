@@ -20,8 +20,8 @@
 
 如果你的 Ubuntu 家庭服务器有可从校园网访问的公网 IPv6，且 UDP `51820` 已在路由器/防火墙和 Ubuntu 上放行，可以在此模式中替代 Cloudflare WARP。仅开放 UDP 端口还不够：Ubuntu 还必须启用 IPv4/IPv6 转发，为 `10.66.66.0/24` 配置 IPv4 NAT，并为隧道 IPv6 配置 NAT66 或可路由的回程前缀。
 
-1. 在 Windows 安装[官方 WireGuard for Windows](https://www.wireguard.com/install/)，并先在官方客户端中导入家庭服务器的客户端 `.conf`；BKNetwork 只会枚举配置名称、启停该隧道服务，不会读取或保存配置中的私钥。
-2. 配置的 `[Peer]` 建议至少包含：
+1. 在 Windows 安装[官方 WireGuard for Windows](https://www.wireguard.com/install/)，并在官方客户端中导入家庭服务器的客户端 `.conf`，**导入后不要点击官方客户端的“连接”**；BKNetwork 只会枚举配置名称、启停该隧道服务，不会读取或保存配置中的私钥。
+2. 家庭全隧道配置必须且只能包含一个服务端 `[Peer]`，并至少包含：
 
    ```ini
    Endpoint = [你的家庭公网 IPv6]:51820
@@ -33,8 +33,10 @@
 3. 以管理员身份运行 BKNetwork，在“家庭网络 WireGuard”卡片选择刚导入的隧道并开启。程序会先断开 WARP、把目标物理网卡切为仅 IPv6，并临时关闭该网卡 IPv6 的 `Forwarding` 与 `WeakHostSend`，避免外层报文回环。WireGuard 启动后，程序读取其公开的 IPv6 Endpoint，为端点添加经所选物理 IPv6 网关的 `/128` 临时路由，验证实际出口、双栈隧道路由、握手、隧道 IPv4 公网连接和 Windows DNS。
 4. 联网后还会复核物理 IPv4 保持关闭、端点继续走物理 IPv6、业务流量经过隧道，全部通过才显示成功。内层 IPv4 网站访问仍封装在 IPv6 外层中，保留校园 IPv6 免流；配置为 IPv4 Endpoint 会被拒绝。
 5. 断开或启动失败时，程序先停止隧道，再移除本次新增的端点路由、恢复原 IPv6 转发选项和普通双栈。恢复记录保存在 `%APPDATA%\BKNetwork\home-routing.json`，不含密钥；遇到恢复失败会保留记录并提示重试关闭。发送计数增加但没有回包时，程序会提示核对本机外层路由、传输链路和服务端回程，避免直接认定 Ubuntu 配置错误。
+6. v2.0.4 会在改网前只读执行 TCP 动态端口压力预检；统计失败或达到 85% 高水位时安全中止。启动各阶段会复核 WireGuard 收发增量，超过 64 MiB 且上行/下行达到 256:1 时尽快停止并回滚；`WSAEACCES/10013` 会明确归类为 Windows 本地 socket/端口或安全过滤问题。
+7. 页面会实时核对 Endpoint `/128`、最佳物理路由以及 `Forwarding/WeakHostSend`，即使恢复记录仍在，只要实际保护已失效也会显示危险状态。
 
-以上保护需要使用 BKNetwork 的家庭网络开关。直接在官方 WireGuard 中连接不会经过 BKNetwork 的启动检查与修复流程。
+以上保护需要使用 BKNetwork 的家庭网络开关。直接在官方 WireGuard 中连接不会经过 BKNetwork 的启动检查与修复流程，并可能再次出现 Endpoint 外层回环、异常上行和整机变慢。若页面提示“未检测到有效的 BKNetwork Endpoint 路由保护”，请立即用 BKNetwork 开关关闭，排除故障后仍从该开关启动。
 
 > 使用家庭网络时不要同时开启 WARP 免流模式；BKNetwork 会在切换时自动关闭另一方。Clash Verge 的系统代理模式可以继续使用，`127.0.0.1` 回环连接不受影响；不要同时开启 Clash TUN。
 

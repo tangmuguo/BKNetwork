@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -14,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"bknetwork/internal/events"
@@ -24,6 +27,19 @@ const (
 	homeHandshakeFreshFor = 3 * time.Minute
 	homeConnectTimeout    = 30 * time.Second
 	homeInternetTimeout   = 15 * time.Second
+	// A healthy connectivity probe exchanges only a few KiB. A very large,
+	// almost one-way increase is consistent with recursive encapsulation of
+	// the IPv6 Endpoint. Abort before that can consume GiBs and stall Windows.
+	homeRunawaySentDelta = 64 * 1024 * 1024
+	homeRunawayRatio     = 256
+)
+
+const (
+	homeDialFailureAccessDenied     = "windows-socket-access-denied"
+	homeDialFailureResourceLimit    = "windows-socket-resource-exhausted"
+	homeDialFailureAddressMissing   = "windows-source-address-unavailable"
+	homeDialFailureTrafficSurge     = "wireguard-traffic-surge"
+	homeDialFailureGuardUnavailable = "wireguard-traffic-guard-unavailable"
 )
 
 var (
@@ -46,10 +62,16 @@ func HomeNetworkHandler(hub *events.Hub) http.HandlerFunc {
 			ctx, cancel := context.WithTimeout(r.Context(), timeoutMedium)
 			defer cancel()
 			profiles, profilesErr := listHomeTunnelProfiles()
-			status := probeHomeNetworkStatus(ctx, cfg.HomeTunnelName)
+			status := probePreferredHomeNetworkStatus(ctx, cfg.HomeTunnelName, profiles)
+			selectedTunnelName := cfg.HomeTunnelName
+			if status.Running && strings.TrimSpace(status.TunnelName) != "" {
+				// Select an externally started imported profile as well, so the
+				// warning is visible and the page's Stop action targets it.
+				selectedTunnelName = status.TunnelName
+			}
 			result := map[string]interface{}{
 				"ok":         true,
-				"tunnelName": cfg.HomeTunnelName,
+				"tunnelName": selectedTunnelName,
 				"profiles":   profiles,
 				"status":     status,
 			}
@@ -162,6 +184,13 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		fail(http.StatusBadGateway, "无法防止家庭 WireGuard 外层路由回环", err.Error(), nil)
 		return
 	}
+	// Capture counters before starting the service when possible. A stopped or
+	// not-yet-created tunnel normally has no readable counters, in which case a
+	// zero baseline lets the first post-start check include the earliest burst.
+	guardBaseline := homeWireGuardMetrics{}
+	if existing, baselineErr := probeHomeWireGuardMetrics(ctx, tunnelName); baselineErr == nil {
+		guardBaseline = existing
+	}
 	serviceOut, serviceErr := ensureHomeTunnelService(ctx, tunnelName)
 	if serviceErr != nil {
 		fail(http.StatusBadGateway, "无法启动家庭 WireGuard 隧道", serviceErr.Error(), map[string]interface{}{"serviceOutput": serviceOut, "stackOutput": stackOut})
@@ -171,10 +200,28 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		fail(http.StatusBadGateway, "家庭 WireGuard 隧道未能进入运行状态", err.Error(), map[string]interface{}{"serviceOutput": serviceOut})
 		return
 	}
+	checkTrafficGuard := func(checkCtx context.Context, stage string) bool {
+		failureClass, detail := probeHomeTrafficGuard(checkCtx, tunnelName, guardBaseline, stage)
+		if failureClass == "" {
+			return true
+		}
+		message := "无法启用家庭 WireGuard 异常流量保护"
+		if failureClass == homeDialFailureTrafficSurge {
+			message = "家庭 WireGuard 异常流量保护已触发"
+		}
+		fail(http.StatusBadGateway, message, detail, map[string]interface{}{"serviceOutput": serviceOut, "failureClass": failureClass})
+		return false
+	}
+	if !checkTrafficGuard(ctx, "隧道启动后") {
+		return
+	}
 	// Only public runtime Endpoint metadata is read. Host routes prevent the
 	// encrypted IPv6 packets from being routed back into the full tunnel.
 	if err := protectHomeTunnelEndpoints(ctx, routing, tunnelName); err != nil {
 		fail(http.StatusBadGateway, "家庭 WireGuard 的 IPv6 外层路由校验失败", err.Error(), nil)
+		return
+	}
+	if !checkTrafficGuard(ctx, "Endpoint 路由保护后") {
 		return
 	}
 	allowedIPs, allowedErr := probeHomeWireGuardAllowedIPs(ctx, tunnelName)
@@ -199,13 +246,22 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		fail(http.StatusConflict, "家庭 WireGuard 的实际路由或 IPv6 免流条件未通过", err.Error(), nil)
 		return
 	}
+	if !checkTrafficGuard(ctx, "默认路由校验后") {
+		return
+	}
 	triggerHomeTunnelTraffic(ctx)
-	status := waitForHomeNetworkConnected(ctx, tunnelName)
+	status := waitForHomeNetworkConnected(ctx, tunnelName, guardBaseline)
 	if !status.Connected {
 		if status.Error == "" {
 			status.Error = "在等待时间内没有收到 WireGuard 握手"
 		}
-		fail(http.StatusBadGateway, "家庭 WireGuard 未完成握手", status.Error, map[string]interface{}{"serviceOutput": serviceOut, "status": status})
+		message := "家庭 WireGuard 未完成握手"
+		if status.FailureClass == homeDialFailureTrafficSurge {
+			message = "家庭 WireGuard 异常流量保护已触发"
+		} else if status.FailureClass == homeDialFailureGuardUnavailable {
+			message = "家庭 WireGuard 启动保护不可用"
+		}
+		fail(http.StatusBadGateway, message, status.Error, map[string]interface{}{"serviceOutput": serviceOut, "status": status})
 		return
 	}
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), homeInternetTimeout)
@@ -213,7 +269,17 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 	probeCancel()
 	if !internet.OK {
 		detail := fmt.Sprintf("WireGuard 已握手，但隧道内 IPv4 联网验证失败：%s", internet.Error)
-		fail(http.StatusBadGateway, "家庭 WireGuard 已握手但无法联网", detail, map[string]interface{}{"internet": internet, "allowedIPs": allowedIPs, "serviceOutput": serviceOut, "status": status})
+		message := "家庭 WireGuard 已握手但无法联网"
+		if strings.HasPrefix(internet.FailureClass, "windows-") {
+			detail = fmt.Sprintf("WireGuard 已握手且路由校验已通过，但 Windows 本地 TCP 探测失败：%s", internet.Error)
+		} else if internet.FailureClass == homeDialFailureTrafficSurge {
+			detail = fmt.Sprintf("WireGuard 已握手，但启动保护检测到异常流量：%s", internet.Error)
+			message = "家庭 WireGuard 异常流量保护已触发"
+		} else if internet.FailureClass == homeDialFailureGuardUnavailable {
+			detail = fmt.Sprintf("WireGuard 已握手，但异常流量保护无法继续可靠读取计数：%s", internet.Error)
+			message = "家庭 WireGuard 启动保护不可用"
+		}
+		fail(http.StatusBadGateway, message, detail, map[string]interface{}{"internet": internet, "allowedIPs": allowedIPs, "serviceOutput": serviceOut, "status": status})
 		return
 	}
 	// Recheck after connectivity tests; don't label physical IPv4 as free-flow.
@@ -227,7 +293,16 @@ func handleHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunn
 		fail(http.StatusConflict, "家庭 WireGuard 联网后 IPv6 免流条件发生变化", verifyErr.Error(), nil)
 		return
 	}
+	finalGuardCtx, finalGuardCancel := context.WithTimeout(context.Background(), timeoutMedium)
+	finalGuardOK := checkTrafficGuard(finalGuardCtx, "最终状态确认后")
+	finalGuardCancel()
+	if !finalGuardOK {
+		return
+	}
 	setFreeFlowRuntimeState("home", ifName)
+	status.Managed = true
+	status.ProtectionHealthy = true
+	status.ProtectionError = ""
 	result := map[string]interface{}{"ok": true, "enabled": true, "tunnelName": tunnelName, "warpOutput": warpOut, "stackOutput": stackOut, "serviceOutput": serviceOut, "allowedIPs": allowedIPs, "internet": internet, "status": status}
 	writeJSON(w, result, http.StatusOK)
 	notify(hub, "home-network.ok", "home WireGuard mode enabled", result)
@@ -257,8 +332,20 @@ func failHomeNetworkStart(w http.ResponseWriter, hub *events.Hub, ifName, tunnel
 			detail += "；恢复双栈失败：" + rollbackErr.Error()
 		}
 	}
+	if homeTunnelStopConfirmed(stopErr) {
+		if strings.TrimSpace(detail) != "" {
+			detail += "；"
+		}
+		if stopErr == nil {
+			detail += "本次 Endpoint 保护已随隧道停止清理"
+		} else {
+			detail += "隧道已停止，但 Endpoint 路由或物理出口清理可能不完整"
+		}
+		detail += "；请勿在官方 WireGuard 客户端直接连接，请排除故障后仍从 BKNetwork 开关启动"
+	}
 	result["error"], result["detail"] = message, detail
 	result["stopOutput"], result["rollbackOutput"], result["rolledBack"] = stopOut, rollbackOut, rolledBack
+	log.Printf("home WireGuard start failed: tunnel=%q message=%q detail=%q rolledBack=%t", tunnelName, message, detail, rolledBack)
 	writeJSON(w, result, code)
 	notify(hub, "home-network.error", "home WireGuard start failed", result)
 }
@@ -333,6 +420,19 @@ func validateHomeTunnelName(name string) error {
 }
 
 func verifyHomeNetworkPreflight(ifName string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutMedium)
+	portUsage, portErr := probeHomeTCPPortUsage(ctx)
+	cancel()
+	if portErr != nil {
+		return fmt.Errorf("无法完成 Windows TCP 临时端口压力预检，已在修改网络前安全中止：%w", portErr)
+	}
+	pressure := portUsage.Used
+	if portUsage.Allocations > pressure {
+		pressure = portUsage.Allocations
+	}
+	if homeTCPPortPressureHigh(pressure, portUsage.Capacity) {
+		return fmt.Errorf("Windows TCP 临时端口压力过高（IPv4 唯一端口/记录 %d/%d、BOUND/TIME_WAIT %d/%d；IPv6 唯一端口/记录 %d/%d、BOUND/TIME_WAIT %d/%d；每个地址族动态范围容量 %d）；系统可能仍处于端口耗尽状态。请先关闭异常隧道并等待连接释放，再从 BKNetwork 重试", portUsage.IPv4Used, portUsage.IPv4Allocations, portUsage.IPv4Bound, portUsage.IPv4TimeWait, portUsage.IPv6Used, portUsage.IPv6Allocations, portUsage.IPv6Bound, portUsage.IPv6TimeWait, portUsage.Capacity)
+	}
 	addresses, err := globalIPv6ForInterface(ifName)
 	if err != nil {
 		return fmt.Errorf("找不到网卡 %s，请重新选择目标网卡", ifName)
@@ -344,6 +444,62 @@ func verifyHomeNetworkPreflight(ifName string) error {
 		return fmt.Errorf("未找到 WireGuard for Windows，请先安装官方客户端")
 	}
 	return nil
+}
+
+type homeTCPPortUsage struct {
+	Used            int
+	Allocations     int
+	Bound           int
+	TimeWait        int
+	IPv4Used        int
+	IPv4Allocations int
+	IPv4Bound       int
+	IPv4TimeWait    int
+	IPv6Used        int
+	IPv6Allocations int
+	IPv6Bound       int
+	IPv6TimeWait    int
+	Capacity        int
+}
+
+func probeHomeTCPPortUsage(ctx context.Context) (homeTCPPortUsage, error) {
+	script := "$ErrorActionPreference='Stop';" +
+		"$s=Get-NetTCPSetting -SettingName Internet -ErrorAction Stop;" +
+		"if($null -eq $s){throw '无法读取 TCP 动态端口范围'};" +
+		"$start=[int]$s.DynamicPortRangeStartPort;$count=[int]$s.DynamicPortRangeNumberOfPorts;$end=$start+$count-1;" +
+		"$connections=@(Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.LocalPort -ge $start -and $_.LocalPort -le $end -and [string]$_.State -ne 'Listen' });" +
+		"$v4=@($connections | Where-Object { $_.LocalAddress -notmatch ':' });$v6=@($connections | Where-Object { $_.LocalAddress -match ':' });" +
+		"$v4Used=@($v4 | Select-Object -ExpandProperty LocalPort -Unique).Count;$v6Used=@($v6 | Select-Object -ExpandProperty LocalPort -Unique).Count;" +
+		"$v4Bound=@($v4 | Where-Object { [string]$_.State -eq 'Bound' }).Count;$v6Bound=@($v6 | Where-Object { [string]$_.State -eq 'Bound' }).Count;" +
+		"$v4TimeWait=@($v4 | Where-Object { [string]$_.State -eq 'TimeWait' }).Count;$v6TimeWait=@($v6 | Where-Object { [string]$_.State -eq 'TimeWait' }).Count;" +
+		"[pscustomobject]@{IPv4Used=$v4Used;IPv4Allocations=$v4.Count;IPv4Bound=$v4Bound;IPv4TimeWait=$v4TimeWait;IPv6Used=$v6Used;IPv6Allocations=$v6.Count;IPv6Bound=$v6Bound;IPv6TimeWait=$v6TimeWait;Capacity=$count} | ConvertTo-Json -Compress"
+	out, err := execWithTimeout(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	if err != nil {
+		return homeTCPPortUsage{}, fmt.Errorf("读取 Windows TCP 临时端口占用失败：%s：%w", strings.TrimSpace(out), err)
+	}
+	return parseHomeTCPPortUsage(out)
+}
+
+func parseHomeTCPPortUsage(raw string) (homeTCPPortUsage, error) {
+	var usage homeTCPPortUsage
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &usage); err != nil {
+		return homeTCPPortUsage{}, fmt.Errorf("解析 Windows TCP 临时端口占用失败：%w", err)
+	}
+	if usage.IPv4Used < 0 || usage.IPv4Allocations < 0 || usage.IPv4Bound < 0 || usage.IPv4TimeWait < 0 ||
+		usage.IPv6Used < 0 || usage.IPv6Allocations < 0 || usage.IPv6Bound < 0 || usage.IPv6TimeWait < 0 || usage.Capacity <= 0 ||
+		usage.IPv4Used > usage.Capacity || usage.IPv6Used > usage.Capacity || usage.IPv4Bound > usage.IPv4Allocations || usage.IPv4TimeWait > usage.IPv4Allocations ||
+		usage.IPv6Bound > usage.IPv6Allocations || usage.IPv6TimeWait > usage.IPv6Allocations {
+		return homeTCPPortUsage{}, fmt.Errorf("Windows TCP 临时端口统计无效")
+	}
+	usage.Used = max(usage.IPv4Used, usage.IPv6Used)
+	usage.Allocations = max(usage.IPv4Allocations, usage.IPv6Allocations)
+	usage.Bound = max(usage.IPv4Bound, usage.IPv6Bound)
+	usage.TimeWait = max(usage.IPv4TimeWait, usage.IPv6TimeWait)
+	return usage, nil
+}
+
+func homeTCPPortPressureHigh(used, capacity int) bool {
+	return capacity > 0 && used >= 0 && int64(used)*100 >= int64(capacity)*85
 }
 
 func disconnectWarpForHomeNetwork() (string, error) {
@@ -623,6 +779,7 @@ type homeWireGuardMetrics struct {
 	HandshakeAt   time.Time
 	ReceivedBytes uint64
 	SentBytes     uint64
+	PeerCount     int
 }
 
 // Query only peer metadata. `wg show <interface> dump` includes the interface
@@ -656,6 +813,7 @@ func parseHomeWireGuardDump(raw string) (homeWireGuardMetrics, error) {
 			continue
 		}
 		hasPeer = true
+		metrics.PeerCount++
 		handshakeSeconds, _ := strconv.ParseInt(fields[4], 10, 64)
 		if handshakeSeconds > 0 {
 			handshake := time.Unix(handshakeSeconds, 0)
@@ -705,6 +863,7 @@ func parseHomeWireGuardMetrics(handshakesRaw, transfersRaw string) (homeWireGuar
 	if len(peers) == 0 {
 		return metrics, fmt.Errorf("WireGuard 未返回 peer 状态")
 	}
+	metrics.PeerCount = len(peers)
 	return metrics, nil
 }
 
@@ -765,9 +924,10 @@ func classifyHomeAllowedIPs(allowedIPs []string) homeAllowedIPCoverage {
 }
 
 type homeInternetAttempt struct {
-	Target string `json:"target"`
-	OK     bool   `json:"ok"`
-	Error  string `json:"error,omitempty"`
+	Target       string `json:"target"`
+	OK           bool   `json:"ok"`
+	FailureClass string `json:"failureClass,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 type homeInternetProbe struct {
@@ -781,6 +941,7 @@ type homeInternetProbe struct {
 	WireGuardMetricsOK     bool                  `json:"wireGuardMetricsOk"`
 	WireGuardReceivedDelta uint64                `json:"wireGuardReceivedDelta"`
 	WireGuardSentDelta     uint64                `json:"wireGuardSentDelta"`
+	FailureClass           string                `json:"failureClass,omitempty"`
 	MetricsError           string                `json:"metricsError,omitempty"`
 	Error                  string                `json:"error,omitempty"`
 }
@@ -833,9 +994,36 @@ func probeHomeTunnelInternet(ctx context.Context, tunnelName string) homeInterne
 	result.Target = targets[0]
 
 	beforeMetrics, beforeMetricsErr := probeHomeWireGuardMetrics(ctx, tunnelName)
-	metricErrors := make([]string, 0, 2)
 	if beforeMetricsErr != nil {
-		metricErrors = append(metricErrors, "探测前读取失败："+beforeMetricsErr.Error())
+		result.FailureClass = homeDialFailureGuardUnavailable
+		result.MetricsError = "探测前读取失败：" + beforeMetricsErr.Error()
+		result.Error = "无法读取 WireGuard 公开流量计数，不能安全执行联网探测；已中止并回滚"
+		return result
+	}
+	if failureClass, detail := evaluateHomeTrafficGuard(beforeMetrics, beforeMetrics, "联网探测前"); failureClass != "" {
+		result.FailureClass = failureClass
+		result.Error = detail
+		return result
+	}
+	result.WireGuardMetricsOK = true
+	checkTraffic := func(stage string) bool {
+		current, err := probeHomeWireGuardMetrics(ctx, tunnelName)
+		if err != nil {
+			result.WireGuardMetricsOK = false
+			result.FailureClass = homeDialFailureGuardUnavailable
+			result.MetricsError = stage + "读取失败：" + err.Error()
+			result.Error = "联网探测期间无法继续读取 WireGuard 公开流量计数；已安全中止并回滚"
+			return false
+		}
+		result.WireGuardReceivedDelta = homeCounterDelta(beforeMetrics.ReceivedBytes, current.ReceivedBytes)
+		result.WireGuardSentDelta = homeCounterDelta(beforeMetrics.SentBytes, current.SentBytes)
+		failureClass, detail := evaluateHomeTrafficGuard(beforeMetrics, current, stage)
+		if failureClass != "" {
+			result.FailureClass = failureClass
+			result.Error = detail
+			return false
+		}
+		return true
 	}
 
 	sourceIP, err := findHomeTunnelIPv4(tunnelName)
@@ -852,8 +1040,12 @@ func probeHomeTunnelInternet(ctx context.Context, tunnelName string) homeInterne
 		conn, dialErr := dialer.DialContext(attemptCtx, "tcp4", target)
 		attemptCancel()
 		if dialErr != nil {
+			attempt.FailureClass = classifyHomeDialFailure(dialErr)
 			attempt.Error = compactHomeDialError(dialErr)
 			result.Attempts = append(result.Attempts, attempt)
+			if !checkTraffic("TCP 探测后") {
+				return result
+			}
 			continue
 		}
 		attempt.OK = true
@@ -861,19 +1053,11 @@ func probeHomeTunnelInternet(ctx context.Context, tunnelName string) homeInterne
 		result.Target = target
 		result.IPv4OK = true
 		_ = conn.Close()
+		if !checkTraffic("TCP 探测后") {
+			return result
+		}
 		break
 	}
-
-	afterMetrics, afterMetricsErr := probeHomeWireGuardMetrics(ctx, tunnelName)
-	if afterMetricsErr != nil {
-		metricErrors = append(metricErrors, "探测后读取失败："+afterMetricsErr.Error())
-	}
-	if beforeMetricsErr == nil && afterMetricsErr == nil {
-		result.WireGuardMetricsOK = true
-		result.WireGuardReceivedDelta = homeCounterDelta(beforeMetrics.ReceivedBytes, afterMetrics.ReceivedBytes)
-		result.WireGuardSentDelta = homeCounterDelta(beforeMetrics.SentBytes, afterMetrics.SentBytes)
-	}
-	result.MetricsError = strings.Join(metricErrors, "；")
 
 	if !result.IPv4OK {
 		failures := make([]string, 0, len(result.Attempts))
@@ -883,14 +1067,21 @@ func probeHomeTunnelInternet(ctx context.Context, tunnelName string) homeInterne
 		flowDetail := ""
 		if result.WireGuardMetricsOK {
 			flowDetail = fmt.Sprintf("；探测期间 WireGuard 发送 +%d B、接收 +%d B，%s", result.WireGuardSentDelta, result.WireGuardReceivedDelta, describeHomeProbeTraffic(result.WireGuardSentDelta, result.WireGuardReceivedDelta))
-		} else if result.MetricsError != "" {
-			flowDetail = "；" + result.MetricsError
 		}
-		result.Error = fmt.Sprintf("从 %s 测试多个 IPv4 目标均失败（%s）%s", result.SourceAddress, strings.Join(failures, "，"), flowDetail)
+		result.FailureClass = commonHomeDialFailureClass(result.Attempts)
+		if result.FailureClass != "" {
+			result.Error = fmt.Sprintf("%s；从隧道地址 %s 发起的目标探测均未能创建连接（%s）%s。该结果不能单独证明 WireGuard 或 Ubuntu 转发失败；请检查 Windows System/Tcpip 事件 4231/4227、TIME_WAIT/BOUND 数量、动态端口及安全过滤规则", describeHomeDialFailure(result.FailureClass), result.SourceAddress, strings.Join(failures, "，"), flowDetail)
+		} else {
+			result.Error = fmt.Sprintf("从 %s 测试多个 IPv4 目标均失败（%s）%s", result.SourceAddress, strings.Join(failures, "，"), flowDetail)
+		}
 		return result
 	}
 
-	if _, resolveErr := net.DefaultResolver.LookupHost(ctx, result.DNSName); resolveErr != nil {
+	_, resolveErr := net.DefaultResolver.LookupHost(ctx, result.DNSName)
+	if !checkTraffic("DNS 探测后") {
+		return result
+	}
+	if resolveErr != nil {
 		result.Error = fmt.Sprintf("隧道内 IPv4 已通，但 Windows DNS 解析失败：%v；请在 WireGuard [Interface] 中设置 DNS", resolveErr)
 		return result
 	}
@@ -906,6 +1097,9 @@ func compactHomeDialError(err error) string {
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 		return "timeout"
 	}
+	if class := classifyHomeDialFailure(err); class != "" {
+		return describeHomeDialFailure(class)
+	}
 	value := strings.TrimSpace(err.Error())
 	if value == "" {
 		return "unknown error"
@@ -913,11 +1107,91 @@ func compactHomeDialError(err error) string {
 	return value
 }
 
+func classifyHomeDialFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
+		return ""
+	}
+	switch uintptr(errno) {
+	case 10013: // WSAEACCES
+		return homeDialFailureAccessDenied
+	case 10024, 10055: // WSAEMFILE, WSAENOBUFS
+		return homeDialFailureResourceLimit
+	case 10049: // WSAEADDRNOTAVAIL
+		return homeDialFailureAddressMissing
+	default:
+		return ""
+	}
+}
+
+func describeHomeDialFailure(class string) string {
+	switch class {
+	case homeDialFailureAccessDenied:
+		return "Windows 拒绝本地 TCP socket（WSAEACCES/10013），常见于临时端口耗尽、WFP/防火墙过滤或端口保留冲突"
+	case homeDialFailureResourceLimit:
+		return "Windows 本地 TCP socket/端口资源耗尽（WSAEMFILE/10024 或 WSAENOBUFS/10055）"
+	case homeDialFailureAddressMissing:
+		return "WireGuard 隧道 IPv4 源地址暂不可用于本地 TCP socket（WSAEADDRNOTAVAIL/10049）"
+	default:
+		return "Windows 本地 TCP socket 探测失败"
+	}
+}
+
+func commonHomeDialFailureClass(attempts []homeInternetAttempt) string {
+	if len(attempts) == 0 || attempts[0].OK || attempts[0].FailureClass == "" {
+		return ""
+	}
+	class := attempts[0].FailureClass
+	for _, attempt := range attempts[1:] {
+		if attempt.OK || attempt.FailureClass != class {
+			return ""
+		}
+	}
+	return class
+}
+
 func homeCounterDelta(before, after uint64) uint64 {
 	if after < before {
 		return after
 	}
 	return after - before
+}
+
+func homeTrafficRunaway(sent, received uint64) bool {
+	if sent < homeRunawaySentDelta {
+		return false
+	}
+	if received == 0 {
+		return true
+	}
+	return sent/received >= homeRunawayRatio
+}
+
+func evaluateHomeTrafficGuard(baseline, current homeWireGuardMetrics, stage string) (string, string) {
+	stage = strings.TrimSpace(stage)
+	if stage == "" {
+		stage = "启动探测"
+	}
+	if current.PeerCount != 1 {
+		return homeDialFailureGuardUnavailable, fmt.Sprintf("%s无法启用单 peer 异常流量保护：当前 WireGuard 配置包含 %d 个 peer；家庭全隧道配置必须且只能包含一个服务端 peer", stage, current.PeerCount)
+	}
+	sentDelta := homeCounterDelta(baseline.SentBytes, current.SentBytes)
+	receivedDelta := homeCounterDelta(baseline.ReceivedBytes, current.ReceivedBytes)
+	if !homeTrafficRunaway(sentDelta, receivedDelta) {
+		return "", ""
+	}
+	return homeDialFailureTrafficSurge, fmt.Sprintf("%s WireGuard 发送 +%d B、接收 +%d B，上行增量达到安全阈值且收发比异常；已触发安全中止。优先检查 IPv6 Endpoint 外层路由回环以及物理网卡 Forwarding/WeakHostSend；若启动时确有大规模正常上行，也可能触发这项偏安全的保护", stage, sentDelta, receivedDelta)
+}
+
+func probeHomeTrafficGuard(ctx context.Context, tunnelName string, baseline homeWireGuardMetrics, stage string) (string, string) {
+	current, err := probeHomeWireGuardMetrics(ctx, tunnelName)
+	if err != nil {
+		return homeDialFailureGuardUnavailable, fmt.Sprintf("%s无法读取 WireGuard 公开流量计数，已安全中止：%v", strings.TrimSpace(stage), err)
+	}
+	return evaluateHomeTrafficGuard(baseline, current, stage)
 }
 
 func describeHomeProbeTraffic(sent, received uint64) string {
@@ -931,7 +1205,28 @@ func describeHomeProbeTraffic(sent, received uint64) string {
 	}
 }
 
+func probePreferredHomeNetworkStatus(ctx context.Context, preferred string, profiles []string) homeNetworkSnapshot {
+	status := probeHomeNetworkStatus(ctx, preferred)
+	if status.Running {
+		return status
+	}
+	for _, profile := range profiles {
+		if strings.EqualFold(strings.TrimSpace(profile), strings.TrimSpace(preferred)) {
+			continue
+		}
+		candidate := probeHomeNetworkStatus(ctx, profile)
+		if candidate.Running {
+			return candidate
+		}
+	}
+	return status
+}
+
 func probeHomeNetworkStatus(ctx context.Context, tunnelName string) homeNetworkSnapshot {
+	return probeHomeNetworkStatusInternal(ctx, tunnelName, true)
+}
+
+func probeHomeNetworkStatusInternal(ctx context.Context, tunnelName string, verifyProtection bool) homeNetworkSnapshot {
 	result := homeNetworkSnapshot{TunnelName: strings.TrimSpace(tunnelName)}
 	if _, err := resolveWireGuardExecutable(); err != nil {
 		return result
@@ -954,6 +1249,30 @@ func probeHomeNetworkStatus(ctx context.Context, tunnelName string) homeNetworkS
 	if !result.Running {
 		return result
 	}
+	if verifyProtection {
+		manager, managerErr := newHomeRoutingManager()
+		if managerErr != nil {
+			result.ProtectionError = "无法定位 BKNetwork Endpoint 路由恢复记录：" + managerErr.Error()
+		} else {
+			state, loadErr := manager.load()
+			switch {
+			case loadErr != nil:
+				result.ProtectionError = loadErr.Error()
+			case state == nil || !strings.EqualFold(state.TunnelName, result.TunnelName):
+				result.ProtectionError = "未找到该运行隧道的 BKNetwork Endpoint 路由保护记录"
+			default:
+				result.Managed = true
+				endpoints, endpointErr := probeHomeWireGuardEndpoints(ctx, result.TunnelName)
+				if endpointErr != nil {
+					result.ProtectionError = endpointErr.Error()
+				} else if protectionErr := manager.verifyProtection(ctx, result.TunnelName, endpoints); protectionErr != nil {
+					result.ProtectionError = protectionErr.Error()
+				} else {
+					result.ProtectionHealthy = true
+				}
+			}
+		}
+	}
 
 	metrics, err := probeHomeWireGuardMetrics(ctx, result.TunnelName)
 	if err != nil {
@@ -962,6 +1281,7 @@ func probeHomeNetworkStatus(ctx context.Context, tunnelName string) homeNetworkS
 	}
 	result.ReceivedBytes = metrics.ReceivedBytes
 	result.SentBytes = metrics.SentBytes
+	result.PeerCount = metrics.PeerCount
 	if !metrics.HandshakeAt.IsZero() {
 		result.LastHandshakeAt = metrics.HandshakeAt.Format(time.RFC3339)
 		age := time.Since(metrics.HandshakeAt)
@@ -986,12 +1306,32 @@ func triggerHomeTunnelTraffic(ctx context.Context) {
 	}
 }
 
-func waitForHomeNetworkConnected(ctx context.Context, tunnelName string) homeNetworkSnapshot {
+func waitForHomeNetworkConnected(ctx context.Context, tunnelName string, baseline homeWireGuardMetrics) homeNetworkSnapshot {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		status := probeHomeNetworkStatus(ctx, tunnelName)
-		if status.Connected || (!status.Running && status.Error != "") {
+		status := probeHomeNetworkStatusInternal(ctx, tunnelName, false)
+		if status.Error != "" {
+			if status.Running {
+				status.FailureClass = homeDialFailureGuardUnavailable
+			}
+			return status
+		}
+		if status.PeerCount != 1 && status.Error == "" {
+			status.Connected = false
+			status.FailureClass = homeDialFailureGuardUnavailable
+			status.Error = fmt.Sprintf("无法启用单 peer 异常流量保护：当前 WireGuard 配置包含 %d 个 peer；家庭全隧道配置必须且只能包含一个服务端 peer", status.PeerCount)
+			return status
+		}
+		sentDelta := homeCounterDelta(baseline.SentBytes, status.SentBytes)
+		receivedDelta := homeCounterDelta(baseline.ReceivedBytes, status.ReceivedBytes)
+		if homeTrafficRunaway(sentDelta, receivedDelta) {
+			status.Connected = false
+			status.FailureClass = homeDialFailureTrafficSurge
+			status.Error = fmt.Sprintf("等待握手期间 WireGuard 发送 +%d B、接收 +%d B，上行增量达到安全阈值且收发比异常；已触发安全中止，优先检查 IPv6 Endpoint 外层路由回环以及物理网卡 Forwarding/WeakHostSend", sentDelta, receivedDelta)
+			return status
+		}
+		if status.Connected {
 			return status
 		}
 		select {
