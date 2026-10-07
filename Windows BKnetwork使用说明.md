@@ -46,7 +46,7 @@
 
 * 关闭 TUN 模式，避免 Mihomo 虚拟网卡抢占 WARP 或家庭 WireGuard 的默认路由
 * 打开系统代理
-* 选择全局模式，并手动选择日区节点（只是方便使用ChatGPT，实则任意节点均可）
+* 选择全局模式，并选择可以访问 ChatGPT、Gemini 的代理节点；规则模式则需要自行保证相关服务及依赖主机都走代理
 * 在 Clash Verge 设置中确认 HTTP/mixed 端口；常见默认地址是 `127.0.0.1:7897`（如果不是此地址，需要在浏览器控制页面给出你电脑的真实地址）
 
 ![pixelated-image_1784516690283](./Windows BKnetwork使用说明.assets/pixelated-image_1784516690283.png)
@@ -56,17 +56,21 @@
 ### BKNetwork 设置
 
 * 先开启 WARP 免流模式或家庭 WireGuard，并等待 BKNetwork 确认联网成功
-* 在 `ChatGPT → Clash Verge 分流` 中填写 Clash 的 `127.0.0.1:端口`
-* 开启分流，看到“ChatGPT → 端口；其他 → 当前网络（WARP/家庭 WireGuard）”后，完全退出并重开 `ChatGPT classic` 和 `ChatGPT`
+* 在 `AI 服务 → Clash Verge 分流` 中填写 Clash 的 `127.0.0.1:端口`；ChatGPT、Gemini 网页端与 quota-float 共用这一个开关和地址，旧版 ChatGPT 配置会自动沿用
+* 开启分流，看到“ChatGPT、Gemini 网页端 → 端口”后，完全退出并重开 `ChatGPT classic` 和 `ChatGPT`，刷新 [Gemini 网页端](https://gemini.google.com/)；若仍未生效，完全退出并重开浏览器，并确认浏览器使用系统代理、没有独立代理扩展覆盖它
 * 同时运行 quota-float 时，BKNetwork 会自动为它单独设置 Clash 代理并重启一次；稍后启动的额度工具也会自动适配，原卡片会显示等待、已适配或失败原因，不需要新按钮。BKNetwork 以管理员权限运行时，额度工具仍保持原来的普通权限。请保留 Clash 运行并关闭 TUN。
 
-PS：此模式使用系统 PAC，只把 OpenAI/ChatGPT 必要的 HTTP、HTTPS、WebSocket 域名交给 Clash。其他系统代理流量为 DIRECT，仍由当前的 WARP 或家庭 WireGuard 承载。Clash 直连模式不会产生日区出口，因此不适合此用法。Voice 的原生 UDP 不受系统 PAC 控制，可能通过当前隧道或回退到 TCP 443。quota-float 不支持 PAC 且缓存启动时的代理，因此它使用独立的进程代理环境，自己的 HTTP/HTTPS 请求经过 Clash；系统环境变量和登录文件不变。它把 HTTP 403 也标为“登录失效”，此提示不一定意味着凭据失效。
+PS：此模式使用系统 PAC，将 OpenAI/ChatGPT 域名和 Gemini 网页端及其依赖主机的 HTTP、HTTPS、WebSocket 请求交给 Clash。Gemini 采用 [Google 官方主机清单](https://knowledge.workspace.google.com/admin/generative-ai/gemini-app/gemini-app-firewall-settings)的完整主机名，并补充 Google 登录主机；不会整体代理 `google.com` 或 `googleapis.com`，但 `www.google.com`、`www.youtube.com` 等共享主机在其他页面中被访问时同样走 Clash。其他请求为 DIRECT，继续使用当前网络（WARP/家庭 WireGuard）。Clash 直连模式不会切换到代理节点出口，因此不适合此用法。Voice 的原生 UDP 不受系统 PAC 控制，可能通过当前隧道或回退到 TCP 443。
+
+quota-float 不支持 PAC 且缓存启动时的代理，因此它使用独立的进程代理环境，自己的 HTTP/HTTPS 请求经过 Clash；系统环境变量和登录文件不变。它把 HTTP 403 也标为“登录失效”，此提示不一定意味着凭据失效。quota-float 的适配错误会单独显示，不影响已完成的 PAC 配置。
+
+卡片显示开启只确认 PAC 和本地 Clash 端口状态，不代表已验证 Gemini 账号可用。启用后可依次检查 Google 登录、Gemini 文本对话和本地文件上传。Gemini 的地区、账号和功能限制仍由 Google 决定；更新程序后请重启 BKNetwork，以应用带新修订号的 PAC。
 
 ## 关闭说明
 
 * 完全退出 ChatGPT Classic 和 ChatGPT。
 
-* 在 BKNetwork 页面关闭“ChatGPT → Clash Verge 分流”，等待 PAC 恢复；已适配且仍在运行的 quota-float 会重开一次，恢复 Windows 用户默认环境。正常从 BKNetwork 托盘退出也会执行恢复。
+* 在 BKNetwork 页面关闭“AI 服务 → Clash Verge 分流”，等待 PAC 恢复，再刷新 Gemini 页面（必要时重启浏览器）；已适配且仍在运行的 quota-float 会重开一次，恢复 Windows 用户默认环境。正常从 BKNetwork 托盘退出也会执行恢复。
 
 * 在 BKNetwork 页面关闭“Warp 免流模式”。
 

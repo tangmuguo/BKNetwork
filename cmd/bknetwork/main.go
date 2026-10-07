@@ -179,7 +179,7 @@ func (p *program) Start(s service.Service) error {
 			if logger != nil {
 				logger.Warning(err)
 			} else {
-				log.Printf("ChatGPT Clash routing activation failed: %v", err)
+				log.Printf("AI services Clash routing activation failed: %v", err)
 			}
 		}
 	}()
@@ -203,7 +203,7 @@ func (p *program) Stop(s service.Service) error {
 		if logger != nil {
 			logger.Warning(err)
 		} else {
-			log.Printf("ChatGPT Clash routing restore failed: %v", err)
+			log.Printf("AI services Clash routing restore failed: %v", err)
 		}
 	}
 	// The HTTP drain budget starts after the separate process restoration.

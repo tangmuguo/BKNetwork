@@ -27,9 +27,15 @@ BKNetwork 会让 WARP 和家庭 WireGuard 互斥：开启家庭模式时会关�
 
 v2.0.4 会在切换网络前只读执行 Windows TCP 动态端口压力预检；无法取得可信统计或达到 85% 高水位时，均在修改网卡前安全中止。连接探测会区分 `WSAEACCES/10013` 等本地 socket 故障与真实隧道路径故障。单 peer 家庭隧道启动期间若 WireGuard 上行增量超过 64 MiB 且达到 256:1 的异常收发比，程序会在各启动阶段复核并尽快失败回滚。页面还会实时核对 Endpoint `/128`、最佳物理路由和 `Forwarding/WeakHostSend`，不能只凭残留状态文件把官方客户端直连标为安全。
 
-## 与 quota-float 共用
+## ChatGPT、Gemini 网页端与 quota-float 共用 Clash
 
-从 v2.0.1 起，继续使用现有的 **ChatGPT → Clash Verge 分流** 开关和 Clash HTTP/mixed 地址，无需增加按钮或修改 quota-float。开启分流、启动 BKNetwork 或修改代理端口时，程序会为当前 Windows 用户、当前会话中正在运行的 `quota-float.exe` 单独设置 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`，并重启一次，使额度请求使用同一个 Clash 出口。稍后才启动 quota-float 也会在约 3 秒内被检测和适配；用户主动退出额度工具后不会被自动打开。
+在 **AI 服务 → Clash Verge 分流** 中填写 Clash HTTP/mixed 地址（默认 `127.0.0.1:7897`），一个开关同时控制 ChatGPT、Gemini 网页端和 quota-float。旧版的 ChatGPT 分流配置、端口和原 PAC 恢复记录会自动沿用，无需新增配置。Clash 请关闭 TUN、开启系统代理，并使用全局模式和可访问相应服务的节点；如果使用规则模式，需要自行确保这些服务及依赖主机最终选择代理出口。
+
+ChatGPT 与 Gemini 网页端通过同一份 Windows 系统 PAC 分流。ChatGPT 保留原有域名后缀规则；Gemini 按 [Google 官方 Gemini App 防火墙清单](https://knowledge.workspace.google.com/admin/generative-ai/gemini-app/gemini-app-firewall-settings)精确匹配完整主机名，并补充 Google 登录主机 `accounts.google.com`（[Google 身份认证端点](https://developers.google.com/identity/openid-connect/openid-connect)）。不会整体代理 `google.com`、`googleapis.com` 或 Google 内容父域；但清单中的 `www.google.com`、`www.youtube.com` 和共享资源主机在其他页面中被访问时也会走 Clash，PAC 无法按发起请求的页面区分。未命中的请求返回 DIRECT，继续使用当前网络（WARP/家庭 WireGuard）。此功能配置代理路径，卡片中的“开启”仅表示 PAC 和本地代理状态，不代表已验证 Gemini 登录或账号可用。
+
+开启或修改地址后，完全退出并重开 ChatGPT 客户端，刷新 [Gemini 网页端](https://gemini.google.com/)；若浏览器仍使用旧连接或 PAC，请完全退出并重开浏览器，且浏览器应使用系统代理（独立代理扩展可能覆盖它）。PAC URL 带规则修订号，更新后重启 BKNetwork 会重新应用新规则。Gemini 的地区、账号和功能限制仍由 Google 决定。
+
+quota-float 沿用 v2.0.1 引入的适配：开启分流、启动 BKNetwork 或修改代理端口时，程序会为当前 Windows 用户、当前会话中正在运行的 `quota-float.exe` 单独设置 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`，并重启一次，使额度请求使用同一个 Clash 出口。稍后才启动 quota-float 也会在约 3 秒内被检测和适配；用户主动退出额度工具后不会被自动打开。适配状态显示在同一卡片中，quota-float 的适配失败会单独提示，不会误报 ChatGPT/Gemini 的 PAC 配置失败。
 
 这是因为 quota-float 的原生 HTTP 客户端只在启动时读取代理，不执行 ChatGPT 客户端使用的 PAC，而且把 HTTP 403 也显示为“登录失效”。适配只改变 quota-float 子进程的 HTTP/HTTPS 代理环境；其他应用继续遵循现有 PAC 分流，系统环境变量、quota-float 源码和 Codex 登录文件均不修改。额度工具会短暂重开，新实例通过 Windows 父进程属性继承原 quota-float 的权限，支持管理员 BKNetwork 与普通权限 quota-float 同时运行；原用户身份和权限保持不变。新实例无法准备成功时保留原实例，并在原卡片中显示失败原因。
 
@@ -76,7 +82,7 @@ IPv6 外层等待仍为 12 秒、协议切换 18 秒、单轮 WARP 连接 24 秒
 3. 无法使用Warp免流
 
    - Warp 确实偶尔连不上，稍后再试（一般都可以的，可以重试个三次）
-   - 类似 Mihomo/Clash TUN、VMware、Tailscale 和蓝牙的虚拟网卡可能抢占默认路由或 DNS。开启前请先关闭其他 VPN/TUN 模式；新版 BKNetwork 会显示 Cloudflare 实际识别到的冲突网卡，并在 WARP 连接失败时自动恢复双栈；新版BKNetwork支持了和Clash verge的系统代理模式同时使用，clash负责代理ChatGPT相关流量，其余流量由warp接管
+   - 类似 Mihomo/Clash TUN、VMware、Tailscale 和蓝牙的虚拟网卡可能抢占默认路由或 DNS。开启前请先关闭其他 VPN/TUN 模式；新版 BKNetwork 会显示 Cloudflare 实际识别到的冲突网卡，并在 WARP 连接失败时自动恢复双栈；新版 BKNetwork 支持与 Clash Verge 的系统代理模式同时使用，Clash 负责 ChatGPT、Gemini 网页端及其依赖主机和 quota-float，其余流量由当前网络承载。
 
 4. 经验
 
@@ -142,8 +148,8 @@ GOOS=windows GOARCH=amd64 go build -o bknetwork.exe ./cmd/bknetwork
 
 - 静态 Web UI：根路径（`/`）会提供 `web` 目录下的文件。
 - REST 状态接口：`/api/v1/status` — 返回最近一次网络快照与服务状态。
-- 控制接口：`/api/v1/switch`（切换 IPv4/IPv6）、`/api/v1/warp`（控制 warp-cli）、`/api/v1/home-network`（控制官方客户端已导入的家庭 WireGuard 隧道）、`/api/v1/chatgpt-proxy`（配置 ChatGPT → Clash PAC 分流，并同步 quota-float 子进程代理）。
-- PAC：`/api/v1/chatgpt-proxy.pac` — 仅供本机 Windows 系统代理读取。
+- 控制接口：`/api/v1/switch`（切换 IPv4/IPv6）、`/api/v1/warp`（控制 warp-cli）、`/api/v1/home-network`（控制官方客户端已导入的家庭 WireGuard 隧道）、`/api/v1/chatgpt-proxy`（统一配置 ChatGPT、Gemini 网页端的 Clash PAC 分流，并同步 quota-float 子进程代理；保留旧路径兼容现有安装）。
+- PAC：`/api/v1/chatgpt-proxy.pac` — 共用的 ChatGPT/Gemini 规则，仅供本机 Windows 系统代理读取。旧 `chatGPTClashEnabled`、`clashProxyAddress` 和 `chatGPTClashPreviousPACURL*` 配置键保持兼容。
 - 实时事件：WebSocket 路径为 `/ws`，会发送 `hello`、`network.status`、`heartbeat` 等事件。
 
 注：改变网络绑定或控制 `warp-cli` 的命令需要以管理员权限执行，接口会在权限不足或命令不可用时返回错误信息并通过 WebSocket 发布事件。
@@ -173,6 +179,8 @@ node --test scripts/app.test.cjs
 ```
 
 这里跳过会构建、启动临时进程的 `TestRestartProcess*` 集成测试；其余 Go 测试使用隔离资源，前端测试模拟网络请求及 DOM。完整 `go test ./...` 仍可按需运行临时进程的权限与恢复验证。
+
+共享分流回归包含 Gemini/ChatGPT 的实际 PAC JavaScript 执行、完整主机边界、非目标直连、关闭/改端口与旧配置兼容，以及前端请求失败恢复、quota-float 独立错误和过期响应保护。PAC 执行测试需要 Node.js；未安装时会明确跳过。它不修改系统代理，也不访问真实账号。真实 Gemini 登录、对话、上传仍需在启用 Clash 后手动验证。
 
 **目录结构（相关）**
 

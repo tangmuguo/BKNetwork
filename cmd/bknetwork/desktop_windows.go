@@ -192,7 +192,7 @@ func runDesktopApp() error {
 	}
 	go func() {
 		if err := handlers.ActivateConfiguredChatGPTProxy(); err != nil {
-			log.Printf("ChatGPT Clash routing activation failed: %v", err)
+			log.Printf("AI services Clash routing activation failed: %v", err)
 		}
 	}()
 
@@ -200,7 +200,7 @@ func runDesktopApp() error {
 	shutdownServer := func() {
 		once.Do(func() {
 			if err := handlers.SuspendConfiguredChatGPTProxy(); err != nil {
-				log.Printf("ChatGPT Clash routing restore failed: %v", err)
+				log.Printf("AI services Clash routing restore failed: %v", err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

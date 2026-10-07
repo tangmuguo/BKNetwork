@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+// Settings keeps the legacy ChatGPT keys for shared ChatGPT, Gemini web and
+// quota-float routing so existing installations retain their configuration.
 type Settings struct {
 	AutoStart                         bool   `json:"autoStart"`
 	SilentStart                       bool   `json:"silentStart"`

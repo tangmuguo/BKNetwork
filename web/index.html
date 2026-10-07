@@ -219,16 +219,16 @@
       <div class="easy-mode-secondary-card clash-split-card">
         <span class="feature-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-route"/></svg></span>
         <div class="clash-split-copy">
-          <div class="easy-mode-title">ChatGPT → Clash Verge 分流</div>
-          <div class="easy-mode-desc">仅将 ChatGPT/OpenAI 必要域名交给 Clash；其余流量直连并继续由 WARP 或家庭 WireGuard 承载。同时自动检测并重启 quota-float，使额度请求走 Clash。建议 Clash 使用系统代理、全局模式并选择日区节点，关闭 TUN。</div>
+          <div class="easy-mode-title">AI 服务 → Clash Verge 分流</div>
+          <div class="easy-mode-desc" id="clashSplitDesc">ChatGPT、Gemini 网页端与 quota-float 共用此开关和 Clash 地址。相关服务及依赖域名走 Clash，包括部分 Google 共享主机；其他流量继续由当前网络承载。quota-float 会自动检测并重启适配。Clash 请开启系统代理、使用全局模式和可用节点，关闭 TUN。开启后刷新 Gemini 页面；仍未生效时重启浏览器。</div>
           <div class="clash-address-row">
-            <label for="clashProxyAddress">Clash HTTP/mixed 地址</label>
-            <input id="clashProxyAddress" class="clash-proxy-input" type="text" value="127.0.0.1:7897" autocomplete="off" spellcheck="false" inputmode="text" />
+            <label for="clashProxyAddress">共用 Clash HTTP/mixed 地址</label>
+            <input id="clashProxyAddress" class="clash-proxy-input" type="text" value="127.0.0.1:7897" autocomplete="off" spellcheck="false" inputmode="text" aria-describedby="clashSplitDesc" />
           </div>
-          <div class="easy-mode-state" id="chatGPTClashState">正在检查...</div>
+          <div class="easy-mode-state" id="chatGPTClashState" role="status" aria-live="polite" aria-atomic="true">正在检查...</div>
         </div>
         <label class="toggle" for="chatGPTClashToggle">
-          <input id="chatGPTClashToggle" type="checkbox" />
+          <input id="chatGPTClashToggle" type="checkbox" aria-label="启用 ChatGPT、Gemini 网页端和 quota-float 的 Clash 分流" aria-describedby="clashSplitDesc chatGPTClashState" />
           <span class="toggle-track" aria-hidden="true"></span>
         </label>
       </div>
@@ -356,6 +356,6 @@
     </div>
   </main>
 
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

@@ -117,6 +117,14 @@ function createHarness() {
     warpSnapshot() {
       return JSON.parse(vm.runInContext('JSON.stringify(latestNetwork?.warp || null)', sandbox));
     },
+    chatGPTClashSnapshot() {
+      return JSON.parse(vm.runInContext('JSON.stringify(chatGPTClashState)', sandbox));
+    },
+    setChatGPTClashState(state) {
+      sandbox.__chatGPTClashState = state;
+      vm.runInContext('Object.assign(chatGPTClashState, __chatGPTClashState)', sandbox);
+      delete sandbox.__chatGPTClashState;
+    },
     setFetch(next) {
       fetchImpl = next;
     },
@@ -135,6 +143,18 @@ function deferred() {
 
 function response(data, ok = true) {
   return { ok, json: async () => data };
+}
+
+function chatGPTClashSnapshot(overrides = {}) {
+  return {
+    enabled: true,
+    active: true,
+    proxyAddress: '127.0.0.1:7897',
+    proxyOnline: true,
+    detail: '',
+    quotaFloat: { status: 'waiting', detail: 'quota-float 启动后将自动适配 Clash' },
+    ...overrides,
+  };
 }
 
 function flush() {
@@ -369,6 +389,98 @@ async function testFailedStatusRequestCanRecover() {
   assert.deepEqual(await retry, { admin: true, network: network(true) });
 }
 
+async function testSharedClashToggleSuccessUpdatesAllServices() {
+  const harness = createHarness();
+  const state = chatGPTClashSnapshot({
+    quotaFloat: { status: 'active', detail: 'quota-float 已使用 Clash 代理重启' },
+  });
+  let requestOptions;
+  harness.elements.get('clashProxyAddress').value = '127.0.0.1:9900';
+  harness.setFetch(async (url, options) => {
+    assert.equal(url, '/api/v1/chatgpt-proxy', 'the existing shared endpoint remains compatible');
+    requestOptions = options;
+    return response({ state });
+  });
+
+  await harness.app.applyChatGPTClash(true);
+  assert.equal(requestOptions.method, 'POST');
+  assert.deepEqual(JSON.parse(requestOptions.body), { enabled: true, proxyAddress: '127.0.0.1:9900' });
+  assert.equal(harness.chatGPTClashSnapshot().enabled, true);
+  assert.match(harness.elements.get('chatGPTClashState').textContent, /ChatGPT、Gemini 网页端/);
+  assert.match(harness.elements.get('chatGPTClashState').textContent, /quota-float 已使用 Clash 代理重启/);
+  assert.match(harness.elements.get('operationToastDesc').textContent, /刷新 Gemini 页面/);
+  assert.match(harness.elements.get('operationToastDesc').textContent, /重启浏览器/);
+}
+
+async function testQuotaFloatFailureStaysIndependentFromSharedClashSuccess() {
+  const harness = createHarness();
+  const state = chatGPTClashSnapshot({
+    quotaFloat: { status: 'error', detail: 'quota-float 适配未完成：无法重启进程' },
+  });
+  harness.setFetch(async () => response({ state }));
+
+  await harness.app.applyChatGPTClash(true);
+  assert.equal(harness.chatGPTClashSnapshot().enabled, true);
+  assert.equal(harness.elements.get('chatGPTClashToggle').checked, true);
+  assert.match(harness.elements.get('chatGPTClashState').textContent, /ChatGPT、Gemini 网页端/);
+  assert.match(harness.elements.get('chatGPTClashState').textContent, /quota-float 适配未完成/);
+  assert.match(harness.elements.get('operationToastDesc').textContent, /仅 quota-float 适配未完成/);
+  assert.equal(harness.elements.get('operationToastTitle').textContent, '部分配置未完成');
+  assert.equal(harness.elements.get('operationToast').dataset.tone, 'warn');
+  assert.doesNotMatch(harness.elements.get('operationToastDesc').textContent, /ChatGPT.*Gemini.*quota-float.*失败/);
+}
+
+async function testFailedSharedClashToggleRestoresPreviousState() {
+  const harness = createHarness();
+  harness.setChatGPTClashState({
+    enabled: true,
+    active: true,
+    proxyAddress: '127.0.0.1:7897',
+    proxyOnline: true,
+    detail: '',
+    quotaFloat: { status: 'active', detail: 'quota-float 正在使用 Clash 代理' },
+  });
+  harness.setFetch(async () => response({ detail: '系统 PAC 写入失败' }, false));
+
+  await assert.rejects(harness.app.applyChatGPTClash(false), /系统 PAC 写入失败/);
+  assert.equal(harness.chatGPTClashSnapshot().enabled, true, 'a failed mutation must restore the previous shared switch state');
+  assert.equal(harness.elements.get('chatGPTClashToggle').checked, true);
+  assert.match(harness.elements.get('chatGPTClashState').textContent, /ChatGPT、Gemini 网页端/);
+  assert.equal(harness.chatGPTClashSnapshot().quotaFloat.status, 'active', 'a PAC failure must not overwrite quota-float state');
+}
+
+async function testStaleClashStatusResponseCannotUndoToggle() {
+  const harness = createHarness();
+  const staleStatus = deferred();
+  let statusStarted = false;
+  harness.setFetch(async (url, options) => {
+    assert.equal(url, '/api/v1/chatgpt-proxy');
+    if (!options?.method) {
+      statusStarted = true;
+      return staleStatus.promise;
+    }
+    return response({ state: chatGPTClashSnapshot({
+      quotaFloat: { status: 'active', detail: 'quota-float 已适配' },
+    }) });
+  });
+
+  const refresh = harness.app.refreshChatGPTClashState();
+  await Promise.resolve();
+  assert.equal(statusStarted, true);
+  await harness.app.applyChatGPTClash(true);
+  staleStatus.resolve(response({
+    enabled: false,
+    active: false,
+    proxyAddress: '127.0.0.1:7897',
+    proxyOnline: false,
+    quotaFloat: { status: 'disabled', detail: 'quota-float 已恢复' },
+  }));
+  await refresh;
+
+  assert.equal(harness.chatGPTClashSnapshot().enabled, true, 'a status read started before the toggle must not replace its newer result');
+  assert.equal(harness.elements.get('chatGPTClashToggle').checked, true);
+}
+
 async function testForcedHomeRefreshWaitsForMutationResult() {
   const harness = createHarness();
   const requests = [];
@@ -444,10 +556,14 @@ async function testStaleManagedHomeTunnelShowsDangerWarning() {
   await testSuccessfulPollBeforeSnapshotIsRetained();
   await testForcedStatusRefreshWaitsForFreshData();
   await testFailedStatusRequestCanRecover();
+  await testSharedClashToggleSuccessUpdatesAllServices();
+  await testQuotaFloatFailureStaysIndependentFromSharedClashSuccess();
+  await testFailedSharedClashToggleRestoresPreviousState();
+  await testStaleClashStatusResponseCannotUndoToggle();
   await testForcedHomeRefreshWaitsForMutationResult();
   await testUnmanagedHomeTunnelShowsDangerWarning();
   await testStaleManagedHomeTunnelShowsDangerWarning();
-  console.log('app.js request overlap, WARP state retention, WireGuard warning and IPv6 timeout tests passed');
+  console.log('app.js request overlap, shared Clash toggle, WARP state retention, WireGuard warning and IPv6 timeout tests passed');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

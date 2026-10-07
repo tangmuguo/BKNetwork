@@ -23,7 +23,9 @@ var chatGPTProxyMu sync.Mutex
 var chatGPTProxyStopping bool
 
 const (
-	chatGPTProxyPACURL       = "http://127.0.0.1:13335/api/v1/chatgpt-proxy.pac?v=" + appinfo.Version
+	// Keep the legacy path/settings so existing installations share one switch.
+	// A rules revision refreshes cached PACs even without an app version change.
+	chatGPTProxyPACURL       = "http://127.0.0.1:13335/api/v1/chatgpt-proxy.pac?v=" + appinfo.Version + "&rules=2"
 	defaultClashProxyAddress = "127.0.0.1:7897"
 )
 
@@ -51,6 +53,50 @@ var chatGPTProxyDomains = []string{
 	"rum.browser-intake-datadoghq.com",
 	"setup.workos.com",
 	"workos.imgix.net",
+}
+
+// Google publishes full hostnames for Gemini app dependencies. Match these
+// exactly: suffix-matching google.com/googleapis.com would route unrelated apps.
+// Some listed hosts are shared with Search/YouTube; PAC cannot distinguish
+// which page initiated a request to them. accounts.google.com adds sign-in.
+// https://knowledge.workspace.google.com/admin/generative-ai/gemini-app/gemini-app-firewall-settings
+// https://developers.google.com/identity/openid-connect/openid-connect
+var geminiProxyHosts = []string{
+	"gemini.google.com",
+	"accounts.google.com",
+	"lh5.googleusercontent.com",
+	"www.googleapis.com",
+	"ssl.gstatic.com",
+	"fonts.googleapis.com",
+	"play.google.com",
+	"ogs.google.com",
+	"www.google.com",
+	"apis.google.com",
+	"jnn-pa.googleapis.com",
+	"waa-pa.clients6.google.com",
+	"i.ytimg.com",
+	"yt3.ggpht.com",
+	"lh3.googleusercontent.com",
+	"maps.gstatic.com",
+	"lh3.google.com",
+	"ogads-pa.clients6.google.com",
+	"csp.withgoogle.com",
+	"www.googletagmanager.com",
+	"www.youtube.com",
+	"fonts.gstatic.com",
+	"maps.googleapis.com",
+	"static.doubleclick.net",
+	"www.gstatic.com",
+	"td.doubleclick.net",
+	"googleads.g.doubleclick.net",
+	"www.google-analytics.com",
+	"optimizationguide-pa.googleapis.com",
+	"encrypted-tbn0.gstatic.com",
+	"encrypted-tbn1.gstatic.com",
+	"encrypted-tbn2.gstatic.com",
+	"encrypted-tbn3.gstatic.com",
+	"streetviewpixels-pa.googleapis.com",
+	"content-autofill.googleapis.com",
 }
 
 type chatGPTProxySnapshot struct {
@@ -124,12 +170,12 @@ func ChatGPTProxyHandler(hub *events.Hub) http.HandlerFunc {
 
 			snapshot, err := applyChatGPTProxyConfiguration(payload.Enabled, address)
 			if err != nil {
-				writeJSON(w, map[string]string{"error": "更新 ChatGPT 分流失败", "detail": err.Error()}, http.StatusInternalServerError)
+				writeJSON(w, map[string]string{"error": "更新 AI 服务分流失败", "detail": err.Error()}, http.StatusInternalServerError)
 				notify(hub, "chatgpt-proxy.error", err.Error(), payload)
 				return
 			}
 			writeJSON(w, map[string]any{"ok": true, "state": snapshot}, http.StatusOK)
-			notify(hub, "chatgpt-proxy.ok", "ChatGPT Clash routing updated", snapshot)
+			notify(hub, "chatgpt-proxy.ok", "AI services Clash routing updated", snapshot)
 		default:
 			writeJSON(w, map[string]string{"error": "method not allowed"}, http.StatusMethodNotAllowed)
 		}
@@ -167,10 +213,12 @@ func buildChatGPTProxyPAC(proxyAddress string) string {
 		return "function FindProxyForURL(url, host) { return \"DIRECT\"; }\n"
 	}
 	domains, _ := json.Marshal(chatGPTProxyDomains)
-	return fmt.Sprintf(`// %s - ChatGPT via Clash Verge, everything else direct through the active network tunnel.
+	geminiHosts, _ := json.Marshal(geminiProxyHosts)
+	return fmt.Sprintf(`// %s - ChatGPT and Gemini web via Clash Verge, everything else direct through the active network tunnel.
 var BKNETWORK_CHATGPT_DOMAINS = %s;
+var BKNETWORK_GEMINI_HOSTS = %s;
 function FindProxyForURL(url, host) {
-  host = String(host || "").toLowerCase();
+  host = String(host || "").toLowerCase().replace(/\.$/, "");
   if (isPlainHostName(host) || host === "localhost" || host === "127.0.0.1" || host === "::1") {
     return "DIRECT";
   }
@@ -180,9 +228,14 @@ function FindProxyForURL(url, host) {
       return "PROXY %s";
     }
   }
+  for (var j = 0; j < BKNETWORK_GEMINI_HOSTS.length; j++) {
+    if (host === BKNETWORK_GEMINI_HOSTS[j]) {
+      return "PROXY %s";
+    }
+  }
   return "DIRECT";
 }
-`, appinfo.DisplayName, domains, proxyAddress)
+`, appinfo.DisplayName, domains, geminiHosts, proxyAddress, proxyAddress)
 }
 
 func checkLocalProxy(address string, timeout time.Duration) error {
@@ -260,7 +313,7 @@ func configureChatGPTProxyLocked(enabled bool, address string) error {
 		return err
 	}
 	// Quota Float caches its proxy at native HTTP client startup and does not
-	// evaluate PAC. Report its failures separately from working ChatGPT routing.
+	// evaluate PAC. Report its failures separately from ChatGPT/Gemini routing.
 	if enabled {
 		_ = quotaFloatRouting.Configure(true, address)
 	} else {
